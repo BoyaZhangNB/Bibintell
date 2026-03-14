@@ -14,7 +14,8 @@
     "service_worker": "background/background.js"
   },
   "action": {
-    "default_popup": "popup/popup.html"
+    "default_popup": "popup/popup.html",
+    "default_icon": "bibin_assets/icon.png"
   },
   "web_accessible_resources": [
     {
