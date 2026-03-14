@@ -1,7 +1,68 @@
 #bibintell-pet {
   position: fixed;
-  bottom: 20px; /* Place near bottom for easy visibility */
-  right: 20px; /* Place near right edge */
+  bottom: 20px;
+  right: 20px;
   z-index: 999999;
   cursor: pointer;
+  user-select: none;
+}
+
+#bibin-speech {
+  position: fixed;
+  z-index: 1000000;
+  background: #ffffff !important;
+  color: #222222 !important;
+  border: 2px solid #555;
+  border-radius: 16px;
+  padding: 10px 14px;
+  max-width: 220px;
+  font-size: 14px;
+  font-family: Arial, sans-serif;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  display: none;
+  pointer-events: auto;
+  word-wrap: break-word;
+
+  /* little triangle pointing down toward Bibin */
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+}
+
+/* Arrow pointing down from bubble toward Bibin */
+#bibin-speech::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 10px 8px 0 8px;
+  border-style: solid;
+  border-color: #ffffff transparent transparent transparent;
+}
+
+#bibin-speech::before {
+  content: "";
+  position: absolute;
+  bottom: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 10px 8px 0 8px;
+  border-style: solid;
+  border-color: #555 transparent transparent transparent;
+}
+
+#bibin-speech div {
+  color: #222222 !important;
+  margin-bottom: 6px;
+}
+
+#bibin-speech input {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 13px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: #222 !important;
+  background: #f9f9f9 !important;
+  outline: none;
 }
