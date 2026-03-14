@@ -87,19 +87,21 @@ function positionBubble() {
 function hideBibin() {
   speech.style.display = "none";
   pet.style.display = "none";
-  // Tell background not to show Bibin again this session
   chrome.runtime.sendMessage({ action: "bibinDone" });
 }
 
 // =====================
-// Display a message directly
+// Display a message with optional input field
 // =====================
-function displayMessage(text) {
+function displayMessage(text, showInput = true) {
   speech.innerHTML = `<div>${text}</div>`;
-  speech.appendChild(input);
+  if (showInput) {
+    speech.appendChild(input);
+    input.focus();
+  }
+  // If no input, remove it so there's no typing space
   speech.style.display = "block";
   positionBubble();
-  input.focus();
 }
 
 // =====================
@@ -136,7 +138,7 @@ function startFlow() {
   pet.style.top = "";
   conversation = [];
 
-  speech.innerHTML = `<div>Hi! Do you want to start a study session? 📖</div>`;
+  speech.innerHTML = `<div>Let's build a strong study dam today. Ready to start working? 📖</div>`;
 
   const btnRow = document.createElement("div");
   btnRow.style.display = "flex";
@@ -159,11 +161,12 @@ function startFlow() {
 
   yesBtn.addEventListener("click", () => {
     input._mode = "subject";
-    displayMessage("What are you studying today? 📚");
+    displayMessage("What subject are we tackling? 📚");
   });
 
   noBtn.addEventListener("click", () => {
-    displayMessage("Okay, good luck! Come back if you need me. 👋");
+    // No input needed — user is done
+    displayMessage("Okay, good luck! Come back if you need me. 👋", false);
     setTimeout(() => hideBibin(), 2000);
   });
 
@@ -186,13 +189,23 @@ input.addEventListener("keydown", async (e) => {
   if (input._mode === "subject") {
     input._mode = "duration";
     conversation.push({ role: "user", content: userMessage });
+
+    // Save subject to storage
+    chrome.storage.local.set({ studySubject: userMessage });
+
     displayMessage(`Nice! How long are you planning to study? ⏱️`);
     return;
   }
 
   if (input._mode === "duration") {
     input._mode = null;
-    displayMessage(`Perfect! I'll let you focus now. Good luck! 🎯`);
+    conversation.push({ role: "user", content: userMessage });
+
+    // Save duration to storage
+    chrome.storage.local.set({ studyDuration: userMessage });
+
+    // No input needed on final message
+    displayMessage(`Perfect! I'll let you focus now. Good luck! 🎯`, false);
     setTimeout(() => hideBibin(), 2500);
     return;
   }
