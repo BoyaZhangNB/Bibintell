@@ -19,11 +19,19 @@ Generate a character splash art of Bibin in the style of watercolor painting, so
 
 **Pop-up**
 - The beaver suddenly jumps up from behind the small grass patch, briefly appearing in the air, then lands gently on the ground and stands still facing forward with a friendly expression.
-follow this sequence:
+Follow this sequence:
         frame 1: Only the grassy environment with reeds and plants. The beaver is not visible yet
         frame 2: The beaver suddenly jumps up into the air from behind the grass patch. The beaver is mid-air with a surprised but cheerful expression.
         frame 3: The beaver lands gently on the grassy ground, slightly bent knees to show impact.
         frame 4: beaver returns to the position in image
 
-**Idle**
-- 
+
+**Conversation**
+- The beaver gestures as if explaining or presenting something, using expressive head movement and simple hand gestures before returning to his neutral pose.
+
+Follow this sequence:
+        frame 1: The beaver looks around from side to side. Motion lines appear around his head to indicate the rotation of his head as he scans the environment.
+        frame 2: The beaver extends one arm outward with his palm open and facing upward, as if presenting or drawing attention to something beside him.
+        frame 3: The beaver brings both arms together in front of his body, standing confidently with a proud and satisfied expression.
+        frame 4: beaver returns to the position in image
+        
