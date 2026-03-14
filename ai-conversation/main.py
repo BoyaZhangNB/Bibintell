@@ -7,7 +7,6 @@ from bibin_model import BibinModel
 app = FastAPI()
 bibin = BibinModel()
 
-# TODO: replace with your actual extension ID from chrome://extensions
 EXTENSION_ID = "idjoaimffdnjooloaejdfekolapfmmdl"
 
 app.add_middleware(
@@ -17,11 +16,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class Message(BaseModel):
+class ChatRequest(BaseModel):
     message: str
     history: Optional[List[dict]] = []
 
 @app.post("/chat")
-async def chat(body: Message):
+async def chat(body: ChatRequest):
     response = bibin.chat(body.message, body.history)
     return {"reply": response}

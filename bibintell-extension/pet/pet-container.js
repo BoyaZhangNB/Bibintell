@@ -1,8 +1,9 @@
 // =====================
-// Create Pet
+// Create Pet (hidden by default)
 // =====================
 const pet = document.createElement("div");
 pet.id = "bibintell-pet";
+pet.style.display = "none";
 
 const img = document.createElement("img");
 img.src = chrome.runtime.getURL("bibin_assets/Bibin_BGRemoved.png");
@@ -81,7 +82,17 @@ function positionBubble() {
 }
 
 // =====================
-// Display a message directly (no AI call)
+// Hide Bibin permanently until summoned again
+// =====================
+function hideBibin() {
+  speech.style.display = "none";
+  pet.style.display = "none";
+  // Tell background not to show Bibin again this session
+  chrome.runtime.sendMessage({ action: "bibinDone" });
+}
+
+// =====================
+// Display a message directly
 // =====================
 function displayMessage(text) {
   speech.innerHTML = `<div>${text}</div>`;
@@ -106,7 +117,6 @@ async function showSpeech(userMessage) {
     });
     const data = await response.json();
     const reply = data.reply;
-
     conversation.push({ role: "bibin", content: reply });
     displayMessage(reply);
   } catch (err) {
@@ -116,20 +126,83 @@ async function showSpeech(userMessage) {
 }
 
 // =====================
-// Listen for user input
+// Show Yes/No flow
+// =====================
+function startFlow() {
+  pet.style.display = "block";
+  pet.style.bottom = "20px";
+  pet.style.right = "20px";
+  pet.style.left = "";
+  pet.style.top = "";
+  conversation = [];
+
+  speech.innerHTML = `<div>Hi! Do you want to start a study session? 📖</div>`;
+
+  const btnRow = document.createElement("div");
+  btnRow.style.display = "flex";
+  btnRow.style.gap = "8px";
+  btnRow.style.marginTop = "8px";
+
+  const yesBtn = document.createElement("button");
+  yesBtn.textContent = "Yes!";
+  yesBtn.style.cssText = `
+    flex: 1; padding: 5px; background: #4caf50; color: white;
+    border: none; border-radius: 8px; cursor: pointer; font-size: 13px;
+  `;
+
+  const noBtn = document.createElement("button");
+  noBtn.textContent = "Not now";
+  noBtn.style.cssText = `
+    flex: 1; padding: 5px; background: #f44336; color: white;
+    border: none; border-radius: 8px; cursor: pointer; font-size: 13px;
+  `;
+
+  yesBtn.addEventListener("click", () => {
+    input._mode = "subject";
+    displayMessage("What are you studying today? 📚");
+  });
+
+  noBtn.addEventListener("click", () => {
+    displayMessage("Okay, good luck! Come back if you need me. 👋");
+    setTimeout(() => hideBibin(), 2000);
+  });
+
+  btnRow.appendChild(yesBtn);
+  btnRow.appendChild(noBtn);
+  speech.appendChild(btnRow);
+  speech.style.display = "block";
+  positionBubble();
+}
+
+// =====================
+// Input handler
 // =====================
 input.addEventListener("keydown", async (e) => {
-  if (e.key === "Enter" && input.value.trim() !== "") {
-    const userMessage = input.value.trim();
+  if (e.key !== "Enter" || input.value.trim() === "") return;
+
+  const userMessage = input.value.trim();
+  input.value = "";
+
+  if (input._mode === "subject") {
+    input._mode = "duration";
     conversation.push({ role: "user", content: userMessage });
-    input.value = "";
-    await showSpeech(userMessage);
+    displayMessage(`Nice! How long are you planning to study? ⏱️`);
+    return;
+  }
+
+  if (input._mode === "duration") {
+    input._mode = null;
+    displayMessage(`Perfect! I'll let you focus now. Good luck! 🎯`);
+    setTimeout(() => hideBibin(), 2500);
+    return;
   }
 });
 
 // =====================
-// Greet on load
+// Listen for summon message from background
 // =====================
-window.addEventListener("load", () => {
-  displayMessage("Hi! Do you want to start a study session?");
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === "showBibin") {
+    startFlow();
+  }
 });
