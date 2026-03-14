@@ -1,0 +1,1 @@
+console.log("Bibintell content script loaded");
