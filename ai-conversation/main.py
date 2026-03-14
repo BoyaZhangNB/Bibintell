@@ -17,8 +17,7 @@ from ai_engine.relevance_engine import relevance_engine
 from ai_engine.vector_store import vector_store
 from ai_engine.intent_tracker import tracker
 
-app = FastAPI()
-bibin = BibinModel()
+
 
 # ... (Keep the rest of your endpoints exactly the same below this line) ...
 app = FastAPI()

@@ -87,3 +87,6 @@ function summonBibinToPage(guiltMessage) {
 
 // Run the check 3 seconds after the page loads
 setTimeout(checkCurrentPage, 3000);
+
+// Run the check every 5 seconds while there is an active topic
+setInterval(checkCurrentPage, 5000);
