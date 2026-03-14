@@ -1,8 +1,7 @@
 #bibintell-pet {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
-  font-size: 40px;
+  bottom: 20px; /* Place near bottom for easy visibility */
+  right: 20px; /* Place near right edge */
   z-index: 999999;
   cursor: pointer;
 }
