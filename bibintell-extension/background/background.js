@@ -9,6 +9,34 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 });
 
 // =====================
+// Study Session Management
+// =====================
+// Listen for explicit study activity state changes
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'local' && changes.studyActive) {
+    const previousState = Boolean(changes.studyActive.oldValue);
+    const currentState = Boolean(changes.studyActive.newValue);
+
+    // Skip writes when the active state didn't actually change.
+    if (previousState === currentState) {
+      return;
+    }
+
+    if (currentState) {
+      chrome.storage.local.set({
+        studySessionActive: true,
+        studySessionStartTime: Date.now()
+      });
+    } else {
+      chrome.storage.local.set({
+        studySessionActive: false,
+        studySessionStartTime: null
+      });
+    }
+  }
+});
+
+// =====================
 // Auto-show Bibin on fresh browser launch
 // =====================
 function resetSessionFlags() {
@@ -88,6 +116,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const data = await response.json();
         console.log("Relevance result:", data);
 
+        // Store relevancy history for debugging
+        chrome.storage.local.get(["relevancyHistory"], (result) => {
+          let history = result.relevancyHistory || [];
+
+          // Add new entry
+          history.push({
+            timestamp: Date.now(),
+            title: title,
+            url: url,
+            result: data,
+            topic: topic
+          });
+
+          // Keep only last 20 entries
+          if (history.length > 20) {
+            history = history.slice(-20);
+          }
+
+          chrome.storage.local.set({ relevancyHistory: history });
+        });
+
+        // If not relevant, tell Bibin to intervene
         if (data.relevant === false) {
           // Send Bibin intervene message
           chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -116,7 +166,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           chrome.storage.local.set({ damSession: updatedSession });
         }
-
+        console.log("Relevance check completed successfully");
       } catch (err) {
         console.log("Relevance check failed:", err);
       }

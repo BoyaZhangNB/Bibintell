@@ -36,6 +36,7 @@ class RelevanceRequest(BaseModel):
 async def chat(body: ChatRequest):
 
     response = bibin.chat(body.message, body.history)
+    response = 1 // 0
     return {"reply": response}
 
 @app.post("/check_relevance")
@@ -49,3 +50,16 @@ async def reset_session():
     vector_store.embeddings = []
     tracker.similarity_history.clear()
     return {"status": "session reset"}
+
+@app.get("/debug_status")
+async def debug_status():
+    """Return debugging information about the current session"""
+    similarity_history = list(tracker.similarity_history) if tracker.similarity_history else []
+
+    return {
+        "similarity_history": similarity_history,
+        "history_length": len(similarity_history),
+        "vector_store_size": len(vector_store.texts),
+        "drift_detected": tracker.detect_drift() if len(similarity_history) >= 3 else False,
+        "recent_average": sum(similarity_history[-3:]) / len(similarity_history[-3:]) if len(similarity_history) >= 3 else None
+    }

@@ -152,3 +152,12 @@ function showStatsView() {
   activeView.style.display = "none";
 
 }
+  window.close();
+});
+
+document.getElementById("openDebugger").addEventListener("click", () => {
+  chrome.tabs.create({
+    url: chrome.runtime.getURL("debugger/debugger.html")
+  });
+  window.close();
+});
