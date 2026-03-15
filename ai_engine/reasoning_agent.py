@@ -5,9 +5,11 @@ client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
 
 def analyze_relevance(topic, page_data, similarity, concepts):
     system_instructions = (
-        "You are a strict Academic Content Auditor. Your job is to prevent 'Productive Procrastination'. "
-        "A page is ONLY relevant if it directly contributes to the user's specific study topic. "
-        "Generic news, social media, or tangentially related entertainment must be marked as relevant: false."
+        "You are an Academic Content Auditor. Your job is to prevent 'Productive Procrastination', "
+        "but you must consider foundational or closely related subjects relevant. "
+        "For example, Calculus pages can be relevant for Physics study, "
+        "and Chemistry concepts may support Biology, etc. "
+        "Generic entertainment, clickbait, or unrelated forums must still be marked irrelevant."
     )
 
     
@@ -23,9 +25,9 @@ def analyze_relevance(topic, page_data, similarity, concepts):
 - **Content Snippet:** {page_data["content"][:450]}
 
 ### CRITERIA FOR RELEVANCE
-1. **Direct Alignment:** Does the content explain, practice, or analyze the study topic?
-2. **Semantic Check:** If the Similarity Score is < 0.35 AND the content doesn't mention {topic}, it is likely irrelevant.
-3. **Distraction Check:** Is this a 'rabbit hole' (e.g., a tech news site, a forum, or a video with a clickbait title)? If yes, relevant = false.
+1. **Direct or Foundational Alignment:** Content is relevant if it explains, practices, analyzes, or conceptually supports the study topic or closely related foundational topics.
+2. **Semantic Check:** If the Similarity Score is < 0.35, consider relevance if the content supports key concepts of {topic}.
+3. **Distraction Check:** Pages that are clearly entertainment, clickbait, forums, or unrelated media should be marked as irrelevant.
 
 ### RESPONSE SPECIFICATION
 Return ONLY a valid JSON object. Do not include conversational filler.
