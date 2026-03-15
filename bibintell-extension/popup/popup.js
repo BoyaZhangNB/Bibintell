@@ -1,13 +1,42 @@
 // =====================
+// Live countdown timer
+// =====================
+let countdownInterval = null;
+
+function startCountdown() {
+  if (countdownInterval) clearInterval(countdownInterval);
+
+  countdownInterval = setInterval(() => {
+    chrome.storage.local.get(["studySessionStartTime", "studyDuration", "studyActive"], (data) => {
+      if (!data.studyActive || !data.studySessionStartTime) {
+        safeSet("total-mins", "–");
+        clearInterval(countdownInterval);
+        return;
+      }
+
+      const durationMs = (parseInt(data.studyDuration) || 0) * 60 * 1000;
+      const elapsed = Date.now() - data.studySessionStartTime;
+      const remaining = durationMs - elapsed;
+
+      if (remaining <= 0) {
+        safeSet("total-mins", "0:00");
+        clearInterval(countdownInterval);
+        return;
+      }
+
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      safeSet("total-mins", `${mins}:${secs.toString().padStart(2, "0")}`);
+    });
+  }, 1000);
+}
+// =====================
 // Modular stats loader — safe to extend without touching other logic
 // =====================
-function loadStats() {
+async function loadStats() {
   chrome.storage.local.get(
     ["streak", "totalMins", "sessionInterventions", "studySubject", "studyActive"],
     (data) => {
-      // Each stat is independent — missing values show "–" gracefully
-      safeSet("streak", data.streak ?? "–");
-      safeSet("total-mins", data.totalMins ?? "–");
       safeSet("live-interventions", data.sessionInterventions ?? "–");
 
       // Status pill
@@ -15,9 +44,11 @@ function loadStats() {
       if (data.studyActive) {
         pill.textContent = "● Studying";
         pill.classList.add("active");
+        startCountdown();
       } else {
         pill.textContent = "● Idle";
         pill.classList.remove("active");
+        clearInterval(countdownInterval);
       }
 
       // Session card
@@ -31,6 +62,14 @@ function loadStats() {
       }
     }
   );
+  try {
+    const res = await fetch("http://127.0.0.1:8000/user-stats");
+    const data = await res.json();
+    safeSet("streak", data.streak ?? "–");
+  } catch (err) {
+    console.log("Could not load stats from API:", err);
+    safeSet("streak", "–");
+  }
 }
 
 function safeSet(id, value) {

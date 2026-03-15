@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENAI_API_KEY = "test"
-OPENAI_BASE_URL = "https://vjioo4r1vyvcozuj.us-east-2.aws.endpoints.huggingface.cloud/v1"
+OPENAI_BASE_URL = "https://qyt7893blb71b5d3.us-east-2.aws.endpoints.huggingface.cloud/v1"
 
 EMBEDDING_MODEL= "all-MiniLM-L6-v2"
 
