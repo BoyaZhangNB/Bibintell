@@ -27,6 +27,7 @@
       "matches": ["<all_urls>"],
       "js": [
         "content/content.js",
+        "pet/animation.js",
         "pet/pet-container.js"
       ],
       "css": ["pet/pet.css"],

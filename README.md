@@ -1,3 +1,6 @@
-# GenAI-Genesis
+# Bibintell
 
-made by Samarth
+
+
+
+# Control logic
