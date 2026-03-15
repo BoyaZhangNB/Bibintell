@@ -140,3 +140,16 @@ async def get_user_stats():
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@app.get("/session-history")
+async def get_session_history():
+    """Returns all sessions for the stats page table."""
+    try:
+        res = supabase.table("dam_sessions") \
+            .select("*") \
+            .eq("user_id", "legend_1") \
+            .order("session_date", desc=True) \
+            .execute()
+        return {"sessions": res.data}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "sessions": []}

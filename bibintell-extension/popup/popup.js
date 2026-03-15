@@ -50,23 +50,23 @@ document.getElementById("summonBibin").addEventListener("click", () => {
 // End session
 // =====================
 document.getElementById("endSession").addEventListener("click", () => {
-  chrome.storage.local.set({ studyActive: false, studySubject: null });
-  chrome.runtime.sendMessage({ action: "bibinDone" });
-  loadStats();
+  // ✅ Send message to background — more reliable than setting storage directly
+  chrome.runtime.sendMessage({ action: "forceEndSession" }, () => {
+    loadStats();
+  });
 });
-
 // =====================
 // Open stats page (stub — replace URL when page is ready)
 // =====================
 document.getElementById("openStats").addEventListener("click", () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL("stats.html") });
+  chrome.tabs.create({ url: chrome.runtime.getURL("stats/stats.html") });
 });
 
 // =====================
 // Debug console
 // =====================
 document.getElementById("openDebugger").addEventListener("click", () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL("debugger.html") });
+  chrome.tabs.create({ url: chrome.runtime.getURL("debugger/debugger.html") });
 });
 
 // =====================

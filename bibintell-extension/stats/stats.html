@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bibintell — Dam Stats</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="stats.css" />
+</head>
+<body>
+
+  <div class="noise"></div>
+
+  <header>
+    <div class="logo-row">
+      <img src="bibin_assets/Bibin_BGRemoved.png" alt="Bibin" class="logo" />
+      <span class="wordmark">Bibintell</span>
+    </div>
+    <span class="tagline">Your Dam Report</span>
+  </header>
+
+  <main>
+
+    <!-- Hero stats row -->
+    <section class="hero-stats" id="heroStats">
+      <div class="hero-card" id="card-streak">
+        <span class="hero-val" id="stat-streak">—</span>
+        <span class="hero-lbl">Day Streak</span>
+        <div class="card-glow"></div>
+      </div>
+      <div class="hero-card" id="card-mins">
+        <span class="hero-val" id="stat-mins">—</span>
+        <span class="hero-lbl">Total Mins</span>
+        <div class="card-glow"></div>
+      </div>
+      <div class="hero-card" id="card-nudges">
+        <span class="hero-val" id="stat-nudges">—</span>
+        <span class="hero-lbl">Total Nudges</span>
+        <div class="card-glow"></div>
+      </div>
+      <div class="hero-card" id="card-distraction">
+        <span class="hero-val small" id="stat-distraction">—</span>
+        <span class="hero-lbl">Top Distraction</span>
+        <div class="card-glow"></div>
+      </div>
+    </section>
+
+    <!-- Session history table -->
+    <section class="history-section">
+      <div class="section-header">
+        <h2>Session History</h2>
+        <span class="badge" id="sessionCount">0 sessions</span>
+      </div>
+
+      <div class="table-wrap">
+        <table id="sessionTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Subject</th>
+              <th>Intended</th>
+              <th>Actual</th>
+              <th>Nudges</th>
+              <th>Focus %</th>
+            </tr>
+          </thead>
+          <tbody id="sessionBody">
+            <!-- populated by JS -->
+          </tbody>
+        </table>
+        <div class="empty-state hidden" id="emptyState">
+          <span>🦫</span>
+          <p>No sessions yet. Go build your dam!</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="stats.js"></script>
+</body>
+</html>

@@ -280,6 +280,6 @@ async function showSpeechWithContext(prompt) {
     input._mode = "intervention";
   } catch (err) {
     displayMessage("Hey! Shouldn't you be studying? 👀", false);
-    setTimeout(() => hideBibin(), 3000);
+    //setTimeout(() => hideBibin(), 3000);
   }
 }

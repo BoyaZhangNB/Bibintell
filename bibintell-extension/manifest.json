@@ -18,7 +18,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["bibin_assets/*", "debugger/*"],
+      "resources": ["bibin_assets/*", "debugger/*", "stats/*"],
       "matches": ["<all_urls>"]
     }
   ],
