@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
+OPENAI_API_KEY = "test"
+OPENAI_BASE_URL = "https://vjioo4r1vyvcozuj.us-east-2.aws.endpoints.huggingface.cloud/v1"
 
 EMBEDDING_MODEL= "all-MiniLM-L6-v2"
 

@@ -161,6 +161,11 @@ function startFlow() {
 
   yesBtn.addEventListener("click", () => {
     input._mode = "subject";
+    fetch("http://127.0.0.1:8000/reset_session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  }).catch(err => console.log("Reset failed:", err));
+
     displayMessage("What subject are we tackling? 📚");
   });
 
@@ -218,4 +223,51 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "showBibin") {
     startFlow();
   }
+
+  if (message.action === "bibinIntervene") {
+    intervene(message.topic, message.reason);
+  }
 });
+
+// =====================
+// Intervention flow
+// =====================
+function intervene(topic, reason) {
+  // Don't interrupt if Bibin is already visible
+  if (pet.style.display === "block") return;
+
+  pet.style.display = "block";
+  pet.style.bottom = "20px";
+  pet.style.right = "20px";
+  pet.style.left = "";
+  pet.style.top = "";
+
+  // Use AI to generate a contextual nudge
+  showSpeechWithContext(
+    `The user is supposed to be studying "${topic}" but is on an unrelated page. Give a short, friendly nudge to get them back on track. Max 2 sentences.`
+  );
+}
+
+// =====================
+// Get AI reply with a custom prompt (no user history needed)
+// =====================
+async function showSpeechWithContext(prompt) {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: prompt,
+        history: []
+      }),
+    });
+    const data = await response.json();
+    displayMessage(data.reply, true);
+
+    // Set input mode so user can respond to Bibin
+    input._mode = "intervention";
+  } catch (err) {
+    displayMessage("Hey! Shouldn't you be studying? 👀", false);
+    setTimeout(() => hideBibin(), 3000);
+  }
+}

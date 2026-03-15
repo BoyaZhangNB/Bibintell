@@ -64,4 +64,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.session.set({ bibinDone: true, bibinShown: false });
   }
 
+    // =====================
+  // Page relevance check
+  // =====================
+  if (message.action === "checkRelevance") {
+    const { title, url, content } = message.data;
+
+    // Only check if there's an active study session
+    chrome.storage.local.get(["studySubject", "studyDuration"], async (result) => {
+      const topic = result.studySubject;
+
+      // No active session, nothing to check
+      if (!topic) return;
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/check_relevance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic, title, content, url })
+        });
+
+        const data = await response.json();
+        console.log("Relevance result:", data);
+
+        // If not relevant, tell Bibin to intervene
+        if (data.relevant === false) {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0] && tabs[0].id) {
+              chrome.tabs.sendMessage(tabs[0].id, {
+                action: "bibinIntervene",
+                reason: data.reason,
+                topic: topic
+              });
+            }
+          });
+        }
+
+      } catch (err) {
+        console.log("Relevance check failed:", err);
+      }
+    });
+  }
+
 });
+
