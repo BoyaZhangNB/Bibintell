@@ -257,16 +257,19 @@ function intervene(topic, reason) {
   // Don't interrupt if Bibin is already visible
   if (pet.style.display === "block") return;
 
-  pet.style.display = "block";
-  pet.style.bottom = "20px";
-  pet.style.right = "20px";
-  pet.style.left = "";
-  pet.style.top = "";
+  chrome.storage.local.get("studyActive", (result) => {
+    if (!result.studyActive) return;
 
-  // Use AI to generate a contextual nudge
-  showSpeechWithContext(
-    `The user is supposed to be studying "${topic}" but is on an unrelated page. Give a short, friendly nudge to get them back on track. Max 2 sentences.`
-  );
+    pet.style.display = "block";
+    pet.style.bottom = "20px";
+    pet.style.right = "20px";
+    pet.style.left = "";
+    pet.style.top = "";
+
+    showSpeechWithContext(
+      `The user is supposed to be studying "${topic}" but is on an unrelated page. Give a short, friendly nudge to get them back on track. Max 2 sentences.`
+    );
+  });
 }
 
 // =====================
