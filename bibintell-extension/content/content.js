@@ -1,23 +1,32 @@
 console.log("Bibintell content script loaded");
 
-// Scrape page content and send to background when page loads
 function scrapeAndSend() {
   const title = document.title;
   const url = window.location.href;
 
-  // Skip chrome:// pages and extension pages
   if (url.startsWith("chrome://") || url.startsWith("chrome-extension://")) return;
 
-  // Get main body text, trimmed to avoid sending megabytes
   const content = document.body.innerText.slice(0, 3000);
 
   chrome.runtime.sendMessage({
     action: "checkRelevance",
     data: { title, url, content }
+  }, (response) => {
+    // Suppress "no receiver" errors silently
+    if (chrome.runtime.lastError) return;
   });
 }
 
-// Run on load
+// Check on initial page load
 window.addEventListener("load", () => {
-  scrapeAndSend();
+  setTimeout(scrapeAndSend, 1000);
+});
+
+// Also check when user switches back to this tab
+// This catches the case where studyActive was false on load
+// but gets set to true during Bibin's conversation
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    scrapeAndSend();
+  }
 });

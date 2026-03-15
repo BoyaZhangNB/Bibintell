@@ -1,4 +1,3 @@
-
 // Create Pet (hidden by default)
 const pet = document.createElement("div");
 pet.id = "bibintell-pet";
@@ -21,7 +20,7 @@ initializePetAnimation(img);
 pet.appendChild(img);
 document.body.appendChild(pet);
 
-// speech bubble
+// Speech bubble
 const speech = document.createElement("div");
 speech.id = "bibin-speech";
 speech.style.display = "none";
@@ -32,7 +31,6 @@ input.placeholder = "Type your reply...";
 
 speech.appendChild(input);
 document.body.appendChild(speech);
-
 
 // Drag & Drop
 let isDragging = false;
@@ -74,7 +72,6 @@ document.addEventListener('mouseup', () => {
 // Conversation History
 let conversation = [];
 
-
 // Position bubble above pet
 function positionBubble() {
   const rect = pet.getBoundingClientRect();
@@ -82,7 +79,6 @@ function positionBubble() {
   speech.style.left = `${rect.left + rect.width / 2 - bubbleWidth / 2}px`;
   speech.style.top = `${rect.top - speech.offsetHeight - 16}px`;
 }
-
 
 // Hide Bibin permanently until summoned again
 function hideBibin() {
@@ -99,11 +95,9 @@ function displayMessage(text, showInput = true) {
     speech.appendChild(input);
     input.focus();
   }
-  // If no input, remove it so there's no typing space
   speech.style.display = "block";
   positionBubble();
 }
-
 
 // Get AI reply and display it
 async function showSpeech(userMessage) {
@@ -125,7 +119,6 @@ async function showSpeech(userMessage) {
     console.error("Bibin fetch error:", err);
   }
 }
-
 
 // Show Yes/No flow
 function startFlow() {
@@ -165,17 +158,15 @@ function startFlow() {
   yesBtn.addEventListener("click", () => {
     input._mode = "subject";
     fetch("http://127.0.0.1:8000/reset_session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  }).catch(err => console.log("Reset failed:", err));
-
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).catch(err => console.log("Reset failed:", err));
     displayMessage("What subject are we tackling? 📚");
   });
 
   noBtn.addEventListener("click", () => {
-    // No input needed — user is done
-    displayMessage("Okay, good luck! Come back if you need me. 👋", false);
     chrome.storage.local.set({ studyActive: false });
+    displayMessage("Okay, good luck! Come back if you need me. 👋", false);
     setTimeout(() => hideBibin(), 2000);
   });
 
@@ -185,7 +176,6 @@ function startFlow() {
   speech.style.display = "block";
   positionBubble();
 }
-
 
 // Input handler
 input.addEventListener("keydown", async (e) => {
@@ -198,10 +188,7 @@ input.addEventListener("keydown", async (e) => {
   if (input._mode === "subject") {
     input._mode = "duration";
     conversation.push({ role: "user", content: userMessage });
-
-    // Save subject to storage
     chrome.storage.local.set({ studySubject: userMessage });
-
     displayMessage(`Nice! How long are you planning to study? ⏱️`);
     return;
   }
@@ -209,19 +196,42 @@ input.addEventListener("keydown", async (e) => {
   if (input._mode === "duration") {
     input._mode = null;
     conversation.push({ role: "user", content: userMessage });
-
-    // Save duration to storage
-    chrome.storage.local.set({ studyDuration: userMessage, studyActive: true });
-
-    // No input needed on final message
+    chrome.storage.local.set({ studyDuration: userMessage, studyActive: true })
+    , () => {
+    // Confirm it was set
+    chrome.storage.local.get("studyActive", (r) => {
+      console.log("studyActive after set:", r.studyActive);
+    });
+  });
     displayMessage(`Perfect! I'll let you focus now. Good luck! 🎯`, false);
     setTimeout(() => hideBibin(), 2500);
     return;
   }
+
+  // Intervention response — user replied to Bibin's nudge
+  if (input._mode === "intervention") {
+    const userMessage2 = userMessage;
+    conversation.push({ role: "user", content: userMessage2 });
+
+    // If user says they're going back to studying, hide Bibin
+    const goingBack = ["yes", "ok", "okay", "sure", "fine", "got it", "on it"].some(
+      word => userMessage2.toLowerCase().includes(word)
+    );
+
+    if (goingBack) {
+      input._mode = null;
+      displayMessage("Great! Get back to it 💪", false);
+      setTimeout(() => hideBibin(), 1500);
+    } else {
+      // Continue the AI conversation
+      await showSpeech(userMessage2);
+      input._mode = "intervention"; // keep in intervention mode
+    }
+    return;
+  }
 });
 
-
-// Listen for summon message from background
+// Listen for messages from background
 chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "showBibin") {
     startFlow();
@@ -237,14 +247,17 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-
 // Intervention flow
 function intervene(topic, reason) {
   // Don't interrupt if Bibin is already visible
   if (pet.style.display === "block") return;
 
+
+
   chrome.storage.local.get("studyActive", (result) => {
     if (!result.studyActive) return;
+
+    lastInterventionTime = now;
 
     pet.style.display = "block";
     pet.style.bottom = "20px";
@@ -258,8 +271,7 @@ function intervene(topic, reason) {
   });
 }
 
-
-// Get AI reply with a custom prompt (no user history needed)
+// Get AI reply with a custom prompt
 async function showSpeechWithContext(prompt) {
   try {
     const response = await fetch("http://127.0.0.1:8000/chat", {
@@ -272,8 +284,6 @@ async function showSpeechWithContext(prompt) {
     });
     const data = await response.json();
     displayMessage(data.reply, true);
-
-    // Set input mode so user can respond to Bibin
     input._mode = "intervention";
   } catch (err) {
     displayMessage("Hey! Shouldn't you be studying? 👀", false);

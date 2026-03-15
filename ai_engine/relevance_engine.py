@@ -34,12 +34,7 @@ def relevance_engine(topic, title, content, url):
             "confidence": score,
             "reason": "High semantic similarity with study topic."
         }
-    if score<SIMILARITY_LOW:
-        return {
-            "relevant": False,
-            "confidence": 1 - score,
-            "reason": "Low similarity to study topic."
-        }
+    
     concepts= retrieve_concepts(page["content"])
 
     llm_result= analyze_relevance(topic,page,score, concepts)
