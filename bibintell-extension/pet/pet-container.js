@@ -10,6 +10,102 @@ img.src = chrome.runtime.getURL("bibin_assets/Bibin_BGRemoved.png");
 img.alt = "Bibintell";
 img.style.width = "200px";
 
+const PET_ANIMATIONS = {
+  appearing: {
+    frameUrls: [
+      chrome.runtime.getURL("bibin_assets/animation/Appearing/1.png"),
+      chrome.runtime.getURL("bibin_assets/animation/Appearing/2.png"),
+      chrome.runtime.getURL("bibin_assets/animation/Appearing/3.png"),
+    ],
+    durationMs: 4000,
+  },
+  conversation: {
+    frameUrls: [
+      chrome.runtime.getURL("bibin_assets/animation/Conversation/1.png"),
+      chrome.runtime.getURL("bibin_assets/animation/Conversation/2.png"),
+      chrome.runtime.getURL("bibin_assets/animation/Conversation/3.png"),
+      chrome.runtime.getURL("bibin_assets/animation/Conversation/4.png"),
+    ],
+    durationMs: 4000,
+  },
+};
+
+const PET_IDLE_FRAME = chrome.runtime.getURL("bibin_assets/animation/Conversation/talk.png");
+img.src = PET_IDLE_FRAME;
+
+let currentAnimationToken = 0;
+
+function preloadFrames() {
+  Object.values(PET_ANIMATIONS).forEach((animation) => {
+    animation.frameUrls.forEach((frameUrl) => {
+      const frame = new Image();
+      frame.src = frameUrl;
+    });
+  });
+
+  const idle = new Image();
+  idle.src = PET_IDLE_FRAME;
+}
+
+function easeInOutQuad(t) {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+function setPetIdleFrame() {
+  img.src = PET_IDLE_FRAME;
+}
+
+function playPetAnimation(animationName, options = {}) {
+  const animation = PET_ANIMATIONS[animationName];
+  if (!animation || animation.frameUrls.length === 0) {
+    return;
+  }
+
+  const { onComplete } = options;
+  const token = ++currentAnimationToken;
+  const frameCount = animation.frameUrls.length;
+  const durationMs = options.durationMs || animation.durationMs;
+  const start = performance.now();
+
+  const render = (now) => {
+    if (token !== currentAnimationToken) {
+      return;
+    }
+
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / durationMs, 1);
+    const easedProgress = easeInOutQuad(progress);
+    const frameIndex = Math.min(
+      Math.floor(easedProgress * frameCount),
+      frameCount - 1
+    );
+    img.src = animation.frameUrls[frameIndex];
+
+    if (progress < 1) {
+      requestAnimationFrame(render);
+      return;
+    }
+
+    if (typeof onComplete === "function") {
+      onComplete();
+      return;
+    }
+
+    setPetIdleFrame();
+  };
+
+  requestAnimationFrame(render);
+}
+
+function playConversationAnimation() {
+  playPetAnimation("conversation", {
+    durationMs: 2000,
+    onComplete: setPetIdleFrame,
+  });
+}
+
+preloadFrames();
+
 pet.appendChild(img);
 document.body.appendChild(pet);
 
@@ -94,6 +190,7 @@ function hideBibin() {
 // Display a message with optional input field
 // =====================
 function displayMessage(text, showInput = true) {
+  playConversationAnimation();
   speech.innerHTML = `<div>${text}</div>`;
   if (showInput) {
     speech.appendChild(input);
@@ -137,6 +234,11 @@ function startFlow() {
   pet.style.left = "";
   pet.style.top = "";
   conversation = [];
+
+  playPetAnimation("appearing", {
+    durationMs: 2000,
+    onComplete: setPetIdleFrame,
+  });
 
   speech.innerHTML = `<div>Let's build a strong study dam today. Ready to start working? 📖</div>`;
 
@@ -190,6 +292,7 @@ input.addEventListener("keydown", async (e) => {
 
   const userMessage = input.value.trim();
   input.value = "";
+  playConversationAnimation();
 
   if (input._mode === "subject") {
     input._mode = "duration";
@@ -222,7 +325,13 @@ input.addEventListener("keydown", async (e) => {
 chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "showBibin") {
     startFlow();
+  } else if (message.action === "animateBibin" && message.animation) {
+    playPetAnimation(message.animation, {
+      durationMs: 2000,
+      onComplete: setPetIdleFrame,
+    });
   }
+<<<<<<< HEAD
 
   if (message.action === "bibinIntervene") {
     intervene(message.topic, message.reason);
@@ -271,3 +380,18 @@ async function showSpeechWithContext(prompt) {
     setTimeout(() => hideBibin(), 3000);
   }
 }
+=======
+});
+
+document.addEventListener("bibin:animate", (event) => {
+  const animation = event?.detail?.animation;
+  if (!animation) {
+    return;
+  }
+
+  playPetAnimation(animation, {
+    durationMs: 2000,
+    onComplete: setPetIdleFrame,
+  });
+});
+>>>>>>> e632492 (update animation)
