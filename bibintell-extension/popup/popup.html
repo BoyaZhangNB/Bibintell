@@ -1,45 +1,64 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h2>
-    Bibintell
-    <img src="../bibin_assets/Bibin_BGRemoved.png" alt="Bibintell Logo" width="30" height="30">
-  </h2>
 
-  <!-- Shown when no active session -->
-  <div id="stats-view">
-    <div class="stat-grid">
-      <div class="stat-box">
-        <span class="stat-label">Current Streak</span>
-        <span class="stat-value" id="streak">0</span>
-      </div>
-      <div class="stat-box">
-        <span class="stat-label">Total Focus Mins</span>
-        <span class="stat-value" id="total-mins">0</span>
-      </div>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <img src="../bibin_assets/Bibin_BGRemoved.png" alt="Bibintell" class="logo" />
+      <span class="brand">Bibintell</span>
     </div>
-    <p style="font-size: 11px;">Top Distraction: <span id="top-distraction">None</span></p>
-    
-    <input type="text" id="subjectInput" placeholder="What are you studying? (e.g. Calculus)" />
-    
-    <button id="startSession">Start Dam Session 🐾</button>
+    <button class="icon-btn" id="openStats" title="View Stats">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+        <line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+    </button>
   </div>
 
-  <!-- Shown during active session -->
-  <div id="active-view" class="hidden">
-    <div class="stat-box" style="border-left: 4px solid #4CAF50; margin-bottom: 10px;">
-      <span class="stat-label">Currently Studying:</span>
-      <span class="stat-value" id="current-subject">...</span>
-    </div>
-    <p>Interventions this session: <b id="live-interventions">0</b></p>
-    <button id="endSession">End Session</button>
+  <!-- Status pill -->
+  <div class="status-row">
+    <span class="status-pill" id="statusPill">● Idle</span>
   </div>
 
-  <hr>
-  <button id="openDebugger" style="margin-top: 5px;">Open Debug Console</button>
+  <!-- Stats strip (modular — populated by popup.js, won't break if empty) -->
+  <div class="stats-strip" id="statsStrip">
+    <div class="stat-chip">
+      <span class="chip-val" id="streak">–</span>
+      <span class="chip-lbl">Streak</span>
+    </div>
+    <div class="divider-v"></div>
+    <div class="stat-chip">
+      <span class="chip-val" id="total-mins">–</span>
+      <span class="chip-lbl">Mins</span>
+    </div>
+    <div class="divider-v"></div>
+    <div class="stat-chip">
+      <span class="chip-val" id="live-interventions">–</span>
+      <span class="chip-lbl">Nudges</span>
+    </div>
+  </div>
+
+  <!-- Session info (shown when active) -->
+  <div class="session-card hidden" id="sessionCard">
+    <span class="session-label">Studying</span>
+    <span class="session-subject" id="current-subject">...</span>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn-primary" id="summonBibin">Summon Bibin 🐾</button>
+    <button class="btn-ghost" id="endSession">End Session</button>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <button class="footer-link" id="openDebugger">Debug Console</button>
+  </div>
 
   <script src="popup.js"></script>
 </body>

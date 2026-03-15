@@ -1,64 +1,75 @@
-document.addEventListener("DOMContentLoaded", () => {
-  // 1. Fetch Stats from FastAPI/Supabase when popup opens
-  fetch("http://127.0.0.1:8000/user-stats")
-    .then(res => res.json())
-    .then(data => {
-      document.getElementById("streak").innerText = data.streak || 0;
-      document.getElementById("total-mins").innerText = data.total_study_mins || 0;
-      document.getElementById("top-distraction").innerText = data.top_distraction || "None";
-    }).catch(err => console.error("Stats Error:", err));
+// =====================
+// Modular stats loader — safe to extend without touching other logic
+// =====================
+function loadStats() {
+  chrome.storage.local.get(
+    ["streak", "totalMins", "sessionInterventions", "studySubject", "studyActive"],
+    (data) => {
+      // Each stat is independent — missing values show "–" gracefully
+      safeSet("streak", data.streak ?? "–");
+      safeSet("total-mins", data.totalMins ?? "–");
+      safeSet("live-interventions", data.sessionInterventions ?? "–");
 
-  // 2. Check if a session is currently running to swap the UI
-  chrome.storage.local.get(["studyActive", "studySubject", "interventions"], (res) => {
-    if (res.studyActive) {
-      document.getElementById("stats-view").classList.add("hidden");
-      document.getElementById("active-view").classList.remove("hidden");
-      document.getElementById("current-subject").innerText = res.studySubject;
-      document.getElementById("live-interventions").innerText = res.interventions || 0;
+      // Status pill
+      const pill = document.getElementById("statusPill");
+      if (data.studyActive) {
+        pill.textContent = "● Studying";
+        pill.classList.add("active");
+      } else {
+        pill.textContent = "● Idle";
+        pill.classList.remove("active");
+      }
+
+      // Session card
+      const card = document.getElementById("sessionCard");
+      const subjectEl = document.getElementById("current-subject");
+      if (data.studyActive && data.studySubject) {
+        subjectEl.textContent = data.studySubject;
+        card.classList.remove("hidden");
+      } else {
+        card.classList.add("hidden");
+      }
     }
-  });
+  );
+}
+
+function safeSet(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+// =====================
+// Summon Bibin
+// =====================
+document.getElementById("summonBibin").addEventListener("click", () => {
+  chrome.runtime.sendMessage({ action: "summonBibin" });
+  window.close();
 });
 
-// 3. START SESSION
-document.getElementById("startSession").addEventListener("click", () => {
-  const subject = document.getElementById("subjectInput").value || "General Study";
-  
-  // Set studyActive to TRUE so background.js starts tracking!
-  chrome.storage.local.set({
-    studyActive: true, 
-    studySubject: subject,
-    interventions: 0,
-    distraction_sites: [],
-    total_pages: 0,
-    relevant_pages: 0,
-    studySessionStartTime: Date.now()
-  }, () => {
-    window.close();
-  });
-});
-
-// 4. END SESSION & SAVE TO DATABASE
+// =====================
+// End session
+// =====================
 document.getElementById("endSession").addEventListener("click", () => {
-  chrome.storage.local.get(null, (res) => {
-    const actual_duration = Math.floor((Date.now() - res.studySessionStartTime) / 60000);
-
-    const payload = {
-      subject: res.studySubject || "Unknown",
-      intended_duration_mins: actual_duration + 5, // Faking intended duration for demo
-      actual_duration_mins: actual_duration,
-      interventions: res.interventions || 0,
-      distraction_sites: res.distraction_sites || [],
-      total_pages: res.total_pages || 0,
-      relevant_pages: res.relevant_pages || 0
-    };
-
-    fetch("http://127.0.0.1:8000/log-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    }).then(() => {
-      // Clear session and close popup
-      chrome.storage.local.set({ studyActive: false }, () => window.close());
-    });
-  });
+  chrome.storage.local.set({ studyActive: false, studySubject: null });
+  chrome.runtime.sendMessage({ action: "bibinDone" });
+  loadStats();
 });
+
+// =====================
+// Open stats page (stub — replace URL when page is ready)
+// =====================
+document.getElementById("openStats").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("stats.html") });
+});
+
+// =====================
+// Debug console
+// =====================
+document.getElementById("openDebugger").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("debugger.html") });
+});
+
+// =====================
+// Init
+// =====================
+loadStats();

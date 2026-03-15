@@ -242,6 +242,9 @@ chrome.runtime.onMessage.addListener((message) => {
 function intervene(topic, reason) {
   // Don't interrupt if Bibin is already visible
   if (pet.style.display === "block") return;
+  chrome.storage.local.get("studyActive", (result) => {
+  console.log("studyActive:", result.studyActive);
+});
 
   chrome.storage.local.get("studyActive", (result) => {
     if (!result.studyActive) return;
