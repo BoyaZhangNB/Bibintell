@@ -101,6 +101,10 @@ document.getElementById("openStats").addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("stats/stats.html") });
 });
 
+document.getElementById("openStore").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("store/store.html") });
+});
+
 // =====================
 // Debug console
 // =====================

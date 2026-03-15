@@ -37,6 +37,12 @@ body {
   justify-content: space-between;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .header-left {
   display: flex;
   align-items: center;

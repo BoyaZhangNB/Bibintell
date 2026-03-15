@@ -121,6 +121,23 @@ function resetSessionFlags() {
 
 chrome.runtime.onStartup.addListener(resetSessionFlags);
 chrome.runtime.onInstalled.addListener(resetSessionFlags);
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.get(["lumberReserve", "purchasedItems"], (result) => {
+    const updates = {};
+
+    if (!Number.isInteger(result.lumberReserve)) {
+      updates.lumberReserve = 100;
+    }
+
+    if (!result.purchasedItems || typeof result.purchasedItems !== "object") {
+      updates.purchasedItems = {};
+    }
+
+    if (Object.keys(updates).length > 0) {
+      chrome.storage.local.set(updates);
+    }
+  });
+});
 
 // =====================
 // Tab fully loaded → show Bibin if needed (fallback)
@@ -155,6 +172,81 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // All message handling
 // =====================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
+  if (message.action === "storeGetLumberReserve") {
+    chrome.storage.local.get(["lumberReserve"], (result) => {
+      const reserve = Number.isInteger(result.lumberReserve) ? result.lumberReserve : 0;
+      sendResponse({ lumberReserve: reserve });
+    });
+    return true;
+  }
+
+  if (message.action === "storeGetPurchasedItems") {
+    chrome.storage.local.get(["purchasedItems"], (result) => {
+      const purchasedItems = result.purchasedItems && typeof result.purchasedItems === "object"
+        ? result.purchasedItems
+        : {};
+      sendResponse({ purchasedItems });
+    });
+    return true;
+  }
+
+  if (message.action === "storePurchaseItem") {
+    const item = message.item || {};
+    const itemId = item.id;
+    const price = parseInt(item.price, 10);
+
+    if (!itemId || !Number.isInteger(price) || price < 0) {
+      sendResponse({ success: false, reason: "Invalid item data" });
+      return true;
+    }
+
+    chrome.storage.local.get(["lumberReserve", "purchasedItems"], (result) => {
+      const reserve = Number.isInteger(result.lumberReserve) ? result.lumberReserve : 0;
+      const purchasedItems = result.purchasedItems && typeof result.purchasedItems === "object"
+        ? result.purchasedItems
+        : {};
+
+      if (reserve < price) {
+        sendResponse({
+          success: false,
+          reason: "Not enough lumber",
+          lumberReserve: reserve,
+          purchasedItems
+        });
+        return;
+      }
+
+      const current = purchasedItems[itemId] || { quantity: 0 };
+      purchasedItems[itemId] = {
+        id: item.id,
+        name: item.name,
+        asset: item.asset,
+        description: item.description,
+        price,
+        quantity: (current.quantity || 0) + 1,
+        lastPurchasedAt: Date.now()
+      };
+
+      const updatedReserve = reserve - price;
+
+      chrome.storage.local.set(
+        {
+          lumberReserve: updatedReserve,
+          purchasedItems
+        },
+        () => {
+          sendResponse({
+            success: true,
+            lumberReserve: updatedReserve,
+            purchasedItems
+          });
+        }
+      );
+    });
+
+    return true;
+  }
 
   if (message.action === "contentReady") {
     chrome.storage.session.get(["bibinDone", "bibinShown"], (result) => {

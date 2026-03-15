@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Bibintell Vendor Store</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Handlee&family=Marcellus&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="store.css" />
+</head>
+<body>
+	<div class="paper"></div>
+
+	<header class="store-header">
+		<div class="title-wrap">
+			<h1>Bibin's Brushwood Bazaar</h1>
+			<p>A tiny watercolor vendor for your dam upgrades.</p>
+		</div>
+		<div class="reserve-pill" id="reservePill">lumberReserve: 0</div>
+	</header>
+
+	<main class="store-main" id="storeMain">
+		<section class="items-grid" id="itemsGrid"></section>
+	</main>
+
+	<template id="itemCardTemplate">
+		<article class="item-card">
+			<div class="asset" data-asset></div>
+			<h2 data-name></h2>
+			<p data-description></p>
+			<button class="purchase-btn" type="button" data-purchase></button>
+		</article>
+	</template>
+
+	<script src="store.js"></script>
+	<script src="lumberReserveTest.js"></script>
+</body>
+</html>
