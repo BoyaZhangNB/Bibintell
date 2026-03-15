@@ -2,44 +2,6 @@
 <html>
 <head>
   <link rel="stylesheet" href="popup.css">
-  <style>
-    body {
-      width: 250px;
-      padding: 15px;
-      font-family: Arial, sans-serif;
-    }
-    h2 {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 15px;
-    }
-    button {
-      width: 100%;
-      padding: 10px;
-      margin-bottom: 8px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      transition: all 0.2s ease;
-    }
-    #startSession {
-      background: #667eea;
-      color: white;
-    }
-    #startSession:hover {
-      background: #5568d3;
-    }
-    #openDebugger {
-      background: #28a745;
-      color: white;
-    }
-    #openDebugger:hover {
-      background: #218838;
-    }
-  </style>
 </head>
 
 <body>
@@ -48,44 +10,6 @@
     Bibintell 
     <img src="../bibin_assets/Bibin_BGRemoved.png" alt="Bibintell Logo" width="30" height="30">
   </h2>
-
-  <!-- DASHBOARD VIEW -->
-  <div id="statsView">
-
-    <div class="stat">
-      🔥 Streak: <span id="streak">-</span>
-    </div>
-
-    <div class="stat">
-      ⏱ Total Focus Time: <span id="totalTime">-</span>
-    </div>
-
-    <div class="stat">
-      🚫 Biggest Distraction: <span id="topDistraction">-</span>
-    </div>
-
-    <input id="subjectInput" placeholder="Study Subject">
-
-    <input id="durationInput" type="number" placeholder="Intended Duration (mins)">
-
-    <button id="startSession">Start Dam Session</button>
-
-  </div>
-
-
-  <!-- ACTIVE SESSION VIEW -->
-  <div id="activeSessionView" style="display:none">
-
-    <p>🦫 Bibin is guarding your focus!</p>
-
-    <p>Subject: <span id="activeSubject"></span></p>
-
-    <button id="endSession">End Dam Session</button>
-
-  </div>
-
-
-  <h2>Bibintell <img src="../bibin_assets/Bibin_BGRemoved.png" alt="Bibintell Logo" width="30" height="30"></h2>
   <button id="startSession">Summon Bibin</button>
   <button id="openDebugger">Open Debug Console</button>
   <script src="popup.js"></script>

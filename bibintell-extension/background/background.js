@@ -96,17 +96,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "checkRelevance") {
     const { title, url, content } = message.data;
 
-    // Use damSession from popup.js
-    chrome.storage.local.get(["damSession"], async (result) => {
-      const session = result.damSession;
-      if (!session || !session.subject) return; // No active session
+    // Only check if there's an active study session
+    chrome.storage.local.get(["studySubject", "studyDuration"], async (result) => {
+      const topic = result.studySubject;
+      if (!topic) return;
 
       try {
         const response = await fetch("http://127.0.0.1:8000/check_relevance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            topic: session.subject,
+            topic,
             title,
             content,
             url
@@ -139,32 +139,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         // If not relevant, tell Bibin to intervene
         if (data.relevant === false) {
-          // Send Bibin intervene message
           chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (!tabs[0] || !tabs[0].id) return;
             chrome.tabs.sendMessage(tabs[0].id, {
               action: "bibinIntervene",
               reason: data.reason,
-              topic: session.subject
+              topic
             });
           });
-
-          // =====================
-          // Update local session counters
-          // =====================
-          const hostname = new URL(url).hostname;
-          const updatedSession = { ...session };
-
-          // Increment interventions
-          updatedSession.interventions = (updatedSession.interventions || 0) + 1;
-
-          // Add to distraction sites if not already present
-          if (!updatedSession.distraction_sites) updatedSession.distraction_sites = [];
-          if (!updatedSession.distraction_sites.includes(hostname)) {
-            updatedSession.distraction_sites.push(hostname);
-          }
-
-          chrome.storage.local.set({ damSession: updatedSession });
         }
         console.log("Relevance check completed successfully");
       } catch (err) {
