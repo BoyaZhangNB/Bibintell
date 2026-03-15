@@ -175,6 +175,7 @@ function startFlow() {
   noBtn.addEventListener("click", () => {
     // No input needed — user is done
     displayMessage("Okay, good luck! Come back if you need me. 👋", false);
+    chrome.storage.local.set({ studyActive: false });
     setTimeout(() => hideBibin(), 2000);
   });
 
