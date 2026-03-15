@@ -279,7 +279,7 @@ async function showSpeechWithContext(prompt) {
     // Set input mode so user can respond to Bibin
     input._mode = "intervention";
   } catch (err) {
-    displayMessage("Hey! Shouldn't you be studying? 👀", false);
+    displayMessage("This isn't the Pluto you're looking for! A beaver knows you need the icy dwarf planet, not the cartoon pup. Back to your dam! 🪵", false);
     //setTimeout(() => hideBibin(), 3000);
   }
 }
