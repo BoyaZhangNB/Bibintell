@@ -35,10 +35,6 @@ class RelevanceRequest(BaseModel):
 @app.post("/chat")
 async def chat(body: ChatRequest):
 
-    vector_store.test = []
-    vector_store.embeddings = []
-    tracker.similarity_history.clear()
-
     response = bibin.chat(body.message, body.history)
     return {"reply": response}
 
