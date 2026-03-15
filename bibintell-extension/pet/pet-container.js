@@ -1,6 +1,5 @@
-// =====================
+
 // Create Pet (hidden by default)
-// =====================
 const pet = document.createElement("div");
 pet.id = "bibintell-pet";
 pet.style.display = "none";
@@ -22,9 +21,7 @@ initializePetAnimation(img);
 pet.appendChild(img);
 document.body.appendChild(pet);
 
-// =====================
-// Speech Bubble
-// =====================
+// speech bubble
 const speech = document.createElement("div");
 speech.id = "bibin-speech";
 speech.style.display = "none";
@@ -36,9 +33,8 @@ input.placeholder = "Type your reply...";
 speech.appendChild(input);
 document.body.appendChild(speech);
 
-// =====================
+
 // Drag & Drop
-// =====================
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
@@ -75,14 +71,11 @@ document.addEventListener('mouseup', () => {
   }
 });
 
-// =====================
 // Conversation History
-// =====================
 let conversation = [];
 
-// =====================
+
 // Position bubble above pet
-// =====================
 function positionBubble() {
   const rect = pet.getBoundingClientRect();
   const bubbleWidth = speech.offsetWidth || 220;
@@ -90,18 +83,15 @@ function positionBubble() {
   speech.style.top = `${rect.top - speech.offsetHeight - 16}px`;
 }
 
-// =====================
+
 // Hide Bibin permanently until summoned again
-// =====================
 function hideBibin() {
   speech.style.display = "none";
   pet.style.display = "none";
   chrome.runtime.sendMessage({ action: "bibinDone" });
 }
 
-// =====================
 // Display a message with optional input field
-// =====================
 function displayMessage(text, showInput = true) {
   playConversationAnimation();
   speech.innerHTML = `<div>${text}</div>`;
@@ -114,9 +104,8 @@ function displayMessage(text, showInput = true) {
   positionBubble();
 }
 
-// =====================
+
 // Get AI reply and display it
-// =====================
 async function showSpeech(userMessage) {
   try {
     const response = await fetch("http://127.0.0.1:8000/chat", {
@@ -137,9 +126,8 @@ async function showSpeech(userMessage) {
   }
 }
 
-// =====================
+
 // Show Yes/No flow
-// =====================
 function startFlow() {
   pet.style.display = "block";
   pet.style.bottom = "20px";
@@ -197,9 +185,8 @@ function startFlow() {
   positionBubble();
 }
 
-// =====================
+
 // Input handler
-// =====================
 input.addEventListener("keydown", async (e) => {
   if (e.key !== "Enter" || input.value.trim() === "") return;
 
@@ -232,9 +219,8 @@ input.addEventListener("keydown", async (e) => {
   }
 });
 
-// =====================
+
 // Listen for summon message from background
-// =====================
 chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "showBibin") {
     startFlow();
@@ -250,9 +236,8 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-// =====================
+
 // Intervention flow
-// =====================
 function intervene(topic, reason) {
   // Don't interrupt if Bibin is already visible
   if (pet.style.display === "block") return;
@@ -269,9 +254,8 @@ function intervene(topic, reason) {
   );
 }
 
-// =====================
+
 // Get AI reply with a custom prompt (no user history needed)
-// =====================
 async function showSpeechWithContext(prompt) {
   try {
     const response = await fetch("http://127.0.0.1:8000/chat", {
