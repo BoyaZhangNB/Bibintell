@@ -3,16 +3,44 @@
 <head>
   <link rel="stylesheet" href="popup.css">
 </head>
-
 <body>
-
   <h2>
-    Bibintell 
+    Bibintell
     <img src="../bibin_assets/Bibin_BGRemoved.png" alt="Bibintell Logo" width="30" height="30">
   </h2>
-  <button id="startSession">Summon Bibin</button>
-  <button id="openDebugger">Open Debug Console</button>
-  <script src="popup.js"></script>
 
+  <!-- Shown when no active session -->
+  <div id="stats-view">
+    <div class="stat-grid">
+      <div class="stat-box">
+        <span class="stat-label">Current Streak</span>
+        <span class="stat-value" id="streak">0</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-label">Total Focus Mins</span>
+        <span class="stat-value" id="total-mins">0</span>
+      </div>
+    </div>
+    <p style="font-size: 11px;">Top Distraction: <span id="top-distraction">None</span></p>
+    
+    <input type="text" id="subjectInput" placeholder="What are you studying? (e.g. Calculus)" />
+    
+    <button id="startSession">Start Dam Session 🐾</button>
+  </div>
+
+  <!-- Shown during active session -->
+  <div id="active-view" class="hidden">
+    <div class="stat-box" style="border-left: 4px solid #4CAF50; margin-bottom: 10px;">
+      <span class="stat-label">Currently Studying:</span>
+      <span class="stat-value" id="current-subject">...</span>
+    </div>
+    <p>Interventions this session: <b id="live-interventions">0</b></p>
+    <button id="endSession">End Session</button>
+  </div>
+
+  <hr>
+  <button id="openDebugger" style="margin-top: 5px;">Open Debug Console</button>
+
+  <script src="popup.js"></script>
 </body>
 </html>
