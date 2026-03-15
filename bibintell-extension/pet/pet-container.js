@@ -210,7 +210,7 @@ input.addEventListener("keydown", async (e) => {
     conversation.push({ role: "user", content: userMessage });
 
     // Save duration to storage
-    chrome.storage.local.set({ studyDuration: userMessage });
+    chrome.storage.local.set({ studyDuration: userMessage, studyActive: true });
 
     // No input needed on final message
     displayMessage(`Perfect! I'll let you focus now. Good luck! 🎯`, false);
