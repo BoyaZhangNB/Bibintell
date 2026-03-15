@@ -8,10 +8,24 @@ from urllib.request import urlopen
 import ollama
 
 class BibinModel:
+    # def __init__(self, model_name="bibin:latest", host: Optional[str] = None):
+    #     self.host = host or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+    #     self._ensure_local_ollama()
+    #     self.client = ollama.Client(host=self.host)
+    #     self.model_name = model_name
     def __init__(self, model_name="bibin:latest", host: Optional[str] = None):
         self.host = host or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-        self._ensure_local_ollama()
-        self.client = ollama.Client(host=self.host)
+        
+        # 1. Disable the hardware check that is crashing Ventura
+        # self._ensure_local_ollama()
+        
+        # 2. Disable the actual connection attempt to the missing local server
+        # self.client = ollama.Client(host=self.host)
+        
+        # 3. Set client to None. Our try/except in main.py will catch this 
+        # and trigger the hardcoded Beaver guilt trip!
+        self.client = None 
+        
         self.model_name = model_name
 
     def _healthcheck(self) -> bool:
