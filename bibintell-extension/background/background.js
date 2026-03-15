@@ -1,30 +1,28 @@
-// Track the active tab title (your existing code)
+// =====================
+// Track active tab title
+// =====================
 chrome.tabs.onActivated.addListener((activeInfo) => {
   chrome.tabs.get(activeInfo.tabId, (tab) => {
-    console.log("Active tab:", tab.title);
-    chrome.storage.local.set({
-      lastActiveTab: tab.title
-    });
+    if (!tab) return;
+    chrome.storage.local.set({ lastActiveTab: tab.title });
   });
 });
 
 // =====================
 // Auto-show Bibin on fresh browser launch
 // =====================
-chrome.runtime.onStartup.addListener(() => {
-  // Explicitly clear everything so previous session's state doesn't bleed in
+function resetSessionFlags() {
   chrome.storage.session.clear(() => {
     chrome.storage.session.set({ bibinDone: false, bibinShown: false });
   });
-});
+}
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.session.clear(() => {
-    chrome.storage.session.set({ bibinDone: false, bibinShown: false });
-  });
-});
+chrome.runtime.onStartup.addListener(resetSessionFlags);
+chrome.runtime.onInstalled.addListener(resetSessionFlags);
 
-// Wait for a tab to fully finish loading
+// =====================
+// Tab fully loaded → show Bibin if needed
+// =====================
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete" || !tab.active) return;
 
@@ -32,7 +30,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (result.bibinDone || result.bibinShown) return;
 
     chrome.storage.session.set({ bibinShown: true });
-
     chrome.tabs.sendMessage(tabId, { action: "showBibin" }, (response) => {
       if (chrome.runtime.lastError) {
         console.log("Tab not ready:", chrome.runtime.lastError.message);
@@ -43,61 +40,81 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 // =====================
-// Listen for messages from content script and popup
+// Listen for messages from popup/content
 // =====================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
+  // Summon Bibin manually from popup
   if (message.action === "summonBibin") {
     chrome.storage.session.set({ bibinDone: false, bibinShown: true });
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0] && tabs[0].id) {
-        chrome.tabs.sendMessage(tabs[0].id, { action: "showBibin" }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.log("Could not summon Bibin:", chrome.runtime.lastError.message);
-          }
-        });
-      }
+      if (!tabs[0] || !tabs[0].id) return;
+      chrome.tabs.sendMessage(tabs[0].id, { action: "showBibin" }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log("Could not summon Bibin:", chrome.runtime.lastError.message);
+        }
+      });
     });
   }
 
+  // Mark Bibin as done for the current session
   if (message.action === "bibinDone") {
     chrome.storage.session.set({ bibinDone: true, bibinShown: false });
   }
 
-    // =====================
+  // =====================
   // Page relevance check
   // =====================
   if (message.action === "checkRelevance") {
     const { title, url, content } = message.data;
 
-    // Only check if there's an active study session
-    chrome.storage.local.get(["studySubject", "studyDuration"], async (result) => {
-      const topic = result.studySubject;
-
-      // No active session, nothing to check
-      if (!topic) return;
+    // Use damSession from popup.js
+    chrome.storage.local.get(["damSession"], async (result) => {
+      const session = result.damSession;
+      if (!session || !session.subject) return; // No active session
 
       try {
         const response = await fetch("http://127.0.0.1:8000/check_relevance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic, title, content, url })
+          body: JSON.stringify({
+            topic: session.subject,
+            title,
+            content,
+            url
+          })
         });
 
         const data = await response.json();
         console.log("Relevance result:", data);
 
-        // If not relevant, tell Bibin to intervene
         if (data.relevant === false) {
+          // Send Bibin intervene message
           chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0] && tabs[0].id) {
-              chrome.tabs.sendMessage(tabs[0].id, {
-                action: "bibinIntervene",
-                reason: data.reason,
-                topic: topic
-              });
-            }
+            if (!tabs[0] || !tabs[0].id) return;
+            chrome.tabs.sendMessage(tabs[0].id, {
+              action: "bibinIntervene",
+              reason: data.reason,
+              topic: session.subject
+            });
           });
+
+          // =====================
+          // Update local session counters
+          // =====================
+          const hostname = new URL(url).hostname;
+          const updatedSession = { ...session };
+
+          // Increment interventions
+          updatedSession.interventions = (updatedSession.interventions || 0) + 1;
+
+          // Add to distraction sites if not already present
+          if (!updatedSession.distraction_sites) updatedSession.distraction_sites = [];
+          if (!updatedSession.distraction_sites.includes(hostname)) {
+            updatedSession.distraction_sites.push(hostname);
+          }
+
+          chrome.storage.local.set({ damSession: updatedSession });
         }
 
       } catch (err) {
@@ -107,4 +124,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
 });
-
