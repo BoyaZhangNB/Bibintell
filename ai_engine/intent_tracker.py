@@ -13,20 +13,28 @@ drifting_weights=[0.143, 0.286,0.571] #change
 class IntentTracker:
     def __init__(self):
         self.intent_embedding=None
-        self.similarity_history= deque(maxlen=PAGE_HISTORY_SIZE)
+        self.history= deque(maxlen=PAGE_HISTORY_SIZE)
 
     def set_intent(self,emb):
         self.intent_embedding=emb
-        self.similarity_history.clear()
+        self.history.clear()
 
-    def add_similarity(self, sim):
-        self.similarity_history.append(sim)
+    def add_page(self, sim, title, url=None, relevant=None):
+        self.history.append({
+            "similarity": sim,
+            "title": title,
+            "url": url,
+            "relevant": relevant
+        })
+
+    def add_to_history(self, item):
+        self.history.append(item)
 
     def detect_drift(self):
-        if len(self.similarity_history) < PAGES_TO_ANALYSE:
+        if len(self.history) < PAGES_TO_ANALYSE:
             return False
         
-        recent= list(self.similarity_history)[-1*PAGES_TO_ANALYSE:]
+        recent= list(self.history)[-1*PAGES_TO_ANALYSE:]
         avg= 0
         for i in range(len(recent)):
             avg+=drifting_weights[i]*recent[i]

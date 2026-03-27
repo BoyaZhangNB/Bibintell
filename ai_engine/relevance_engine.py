@@ -2,45 +2,49 @@ from .embedding_service import embed_text
 from .similarity_service import compute_relevance_score
 from .intent_tracker import tracker
 from .page_processor import process_page
-from .rag_retriever import retrieve_concepts
 from .reasoning_agent import analyze_relevance
-from .config import SIMILARITY_HIGH, SIMILARITY_LOW
-from .knowledge_builder import add_page_knowledge
-from .web_bootstrapper import bootstrap_topic
-from .vector_store import vector_store
+from .config import SIMILARITY_HIGH
 
-def relevance_engine(topic, title, content, url):
-    if len(vector_store.texts) == 0:
-        bootstrap_topic(topic)
-        
-    page= process_page(title, content, url)
 
-    topic_emb=embed_text(topic)
-    title_emb=embed_text(page["title"])
-    content_emb= embed_text(page["content"])
+def relevance_engine(topic, title, content, url):  
+    page = process_page(title, content, url)
 
-    sim_data= compute_relevance_score(topic_emb, title_emb, content_emb)
+    topic_emb = embed_text(topic)
+    title_emb = embed_text(page["title"])
+    content_emb = embed_text(page["content"])
 
-    score= sim_data["score"]
+    sim_data = compute_relevance_score(topic_emb, title_emb, content_emb)
+    score = sim_data["score"]
 
-    tracker.add_similarity(score)
+    tracker.add_page(score, page["title"], url, None)  # temp, updated below
+    drift = tracker.detect_drift()
 
-    drift= tracker.detect_drift()
-
-    if score>SIMILARITY_HIGH:
-        add_page_knowledge(page["content"])
+    # High similarity — skip LLM entirely, obviously relevant
+    if score > SIMILARITY_HIGH:
+        tracker.history[-1]["relevant"] = True
         return {
             "relevant": True,
-            "confidence": score,
-            "reason": "High semantic similarity with study topic."
+            "similarity_score": score,
+            "drift_detected": drift,
+            "reason": "High semantic similarity with study topic.",
+            "llm_analysis": None,
+            "page_title": page["title"],
+            "page_url": url
         }
 
-    concepts= retrieve_concepts(page["content"])
+    # Below threshold — call LLM to make the final call
+    llm_result = analyze_relevance(topic, page, score)
+    relevant = llm_result.get("relevant", False)
+    reason = llm_result.get("reason", "No reason provided.")
 
-    llm_result= analyze_relevance(topic,page,score, concepts)
+    tracker.history[-1]["relevant"] = relevant  # update with real verdict
 
     return {
+        "relevant": relevant,
         "similarity_score": score,
         "drift_detected": drift,
-        "llm_analysis": llm_result
+        "reason": reason,
+        "llm_analysis": llm_result,
+        "page_title": page["title"],
+        "page_url": url
     }

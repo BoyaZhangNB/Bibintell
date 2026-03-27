@@ -269,8 +269,7 @@ async function showSpeechWithContext(prompt) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: prompt,
-        history: []
+        message: prompt
       }),
     });
     const data = await response.json();
@@ -279,7 +278,7 @@ async function showSpeechWithContext(prompt) {
     // Set input mode so user can respond to Bibin
     input._mode = "intervention";
   } catch (err) {
-    displayMessage("This isn't the Pluto you're looking for! A beaver knows you need the icy dwarf planet, not the cartoon pup. Back to your dam! 🪵", false);
+    displayMessage("My apologies, I'm having trouble connecting to the AI service.", false);
     //setTimeout(() => hideBibin(), 3000);
   }
 }
