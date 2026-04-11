@@ -1,7 +1,13 @@
-sentence-transformers
-faiss-cpu
-numpy
-scikit-learn
+# Core server
+fastapi
+uvicorn[standard]
+pydantic
+
+# AI / LLM
+groq
+
+# Database
+supabase
+
+# Utilities
 python-dotenv
-openai
-tiktoken

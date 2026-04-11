@@ -118,7 +118,7 @@ async function showSpeech(userMessage) {
     });
     const data = await response.json();
     const reply = data.reply;
-    conversation.push({ role: "bibin", content: reply });
+    conversation.push({ role: "assistant", content: reply });  // must be "assistant", not "bibin"
     displayMessage(reply);
   } catch (err) {
     displayMessage("Oops! I can't connect right now. Is the server running?");

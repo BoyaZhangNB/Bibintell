@@ -342,6 +342,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           body: JSON.stringify({ topic, title, content, url })
         });
 
+        if (!response.ok) {
+          const text = await response.text();
+          console.error("Relevance check HTTP error:", response.status, text);
+          return;
+        }
+
         const data = await response.json();
         console.log("Relevance result:", data);
 
@@ -353,8 +359,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         console.log("drift_detected:", data.drift_detected, "| relevant:", analysis?.relevant);
 
-        // Track relevant pages
-        if (analysis?.relevant === true) {
+        // Track relevant pages — use top-level data.relevant (always set by backend)
+        // analysis?.relevant is null when similarity is high (LLM skipped), so never counted before
+        if (data.relevant === true) {
           chrome.storage.local.get("sessionRelevantPages", (r) => {
             chrome.storage.local.set({ sessionRelevantPages: (r.sessionRelevantPages || 0) + 1 });
           });
@@ -368,7 +375,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           chrome.storage.local.set({ relevancyHistory: history });
         });
 
-        if (analysis?.relevant === false) {
+        // Intervene only when LLM marks page as not relevant
+        if (data.relevant === false) {
           // Track intervention + distraction site
           chrome.storage.local.get(["sessionInterventions", "sessionDistractionSites"], (r) => {
             const sites = r.sessionDistractionSites || [];
@@ -388,22 +396,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           console.log("Sending bibinIntervene to tab:", senderTabId);
-
-          chrome.tabs.sendMessage(
-            senderTabId,
-            {
-              action: "bibinIntervene",
-              reason: analysis?.reason || "You're drifting from your study topic!",
-              topic
-            },
-            (response) => {
-              if (chrome.runtime.lastError) {
-                console.log("Intervene failed:", chrome.runtime.lastError.message);
-              } else {
-                console.log("Intervene sent successfully ✅");
-              }
-            }
-          );
+          sendIntervene(senderTabId, {
+            reason: data.reason || "You're drifting from your study topic!",
+            topic
+          });
         }
 
       } catch (err) {
@@ -451,3 +447,26 @@ function clearSessionTimer() {
   }
 }
 
+// =====================
+// Retry-based intervene sender
+// Handles SPAs (like YouTube) where the content script is briefly
+// unavailable after in-page navigation — retries up to 3 times.
+// =====================
+function sendIntervene(tabId, data, attempt = 1) {
+  chrome.tabs.sendMessage(
+    tabId,
+    { action: "bibinIntervene", reason: data.reason, topic: data.topic },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        if (attempt < 3) {
+          console.log(`Intervene attempt ${attempt} failed — retrying in ${attempt}s...`);
+          setTimeout(() => sendIntervene(tabId, data, attempt + 1), 1000 * attempt);
+        } else {
+          console.log("Intervene failed after 3 attempts:", chrome.runtime.lastError.message);
+        }
+      } else {
+        console.log(`Intervene sent successfully ✅ (attempt ${attempt})`);
+      }
+    }
+  );
+}
