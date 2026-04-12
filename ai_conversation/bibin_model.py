@@ -10,7 +10,7 @@ class BibinModel:
 
     def __init__(self, model_name: str = "llama-3.3-70b-versatile"):
         self.model_name = model_name
-        self.nudge_model_name = "llama-3.1-8b-instant"
+        self.nudge_model_name = "llama-3.3-70b-versatile"
         api_key = os.getenv("GROQ_API_KEY")
         self.client = Groq(api_key=api_key) if api_key else Groq()  # fallback to existing env behavior
 
@@ -63,16 +63,17 @@ GIVE ONLY A SHORT RESPONSE, AROUND 15 WORDS."""
             flush=True,
         )
 
-        system = """You are Bibin, a strict but friendly productivity beaver.
+        system = """You are Bibin, an accountability beaver study coach.
 
-Generate ONLY one short intervention nudge.
-Rules:
-- Plain text only
-- 1 sentence
-- Max 20 words
-- Firm and direct, but not insulting
-- Include the study topic when present in prompt
-"""
+    Your nudges should start witty and friendly, then become increasingly stern when reminder_count is higher.
+
+    Rules:
+    - Output exactly one sentence in plain text
+    - Keep it short and punchy (max 24 words)
+    - Use light beaver-themed wordplay when tone target says playful
+    - Mention one concrete session metric when available
+    - Never be insulting or abusive
+    """
 
         try:
             response = self.client.chat.completions.create(
@@ -81,8 +82,8 @@ Rules:
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=60,
-                temperature=0.2,
+                max_tokens=80,
+                temperature=0.45,
             )
         except Exception as e:
             print(f"[BibinModel.nudge] groq_error={e}", flush=True)

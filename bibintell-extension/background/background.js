@@ -475,6 +475,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
         startSessionTimer(mins);
       });
     } else {
+      interventionLoops.forEach((_, tabId) => stopInterventionLoop(tabId, "study_ended"));
       clearSessionTimer();
       endAndLogSession();
     }
@@ -597,6 +598,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!isEligibleUrl(url)) return;
 
   requestShowBibin(tabId, "tabs.onUpdated");
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  stopInterventionLoop(tabId, "tab_removed");
 });
 
 // =====================
@@ -928,7 +933,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             pageTitle: title || "",
           });
 
-          chrome.storage.local.get(["sessionInterventions", "sessionDistractionSites"], (r) => {
+          chrome.storage.local.get(["sessionDistractionSites"], (r) => {
             const sites = r.sessionDistractionSites || [];
             try {
               const hostname = new URL(url).hostname;
@@ -937,7 +942,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               // noop
             }
             chrome.storage.local.set({
-              sessionInterventions: (r.sessionInterventions || 0) + 1,
               sessionDistractionSites: sites,
             });
           });
@@ -947,56 +951,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return;
           }
 
-          chrome.storage.local.get(
-            ["sessionInterventions", "sessionTotalPages", "sessionRelevantPages"],
-            async (sessionData) => {
-              logDebug("intervention_pipeline_context_loaded", {
-                tabId: senderTabId,
-                interventions: sessionData.sessionInterventions || 0,
-                totalPages: sessionData.sessionTotalPages || 0,
-                relevantPages: sessionData.sessionRelevantPages || 0,
-              });
+          const interventionData = {
+            reason: data.reason || "You're drifting from your study topic!",
+            topic,
+            pageTitle: title || "",
+            pageUrl: url || "",
+            llmReason: data.reason || "",
+          };
 
-              const interventionData = {
-                reason: data.reason || "You're drifting from your study topic!",
-                topic,
-                pageTitle: title || "",
-                pageUrl: url || "",
-                llmReason: data.reason || "",
-                interventions: sessionData.sessionInterventions || 0,
-                totalPages: sessionData.sessionTotalPages || 0,
-                relevantPages: sessionData.sessionRelevantPages || 0,
-              };
+          logDebug("intervention_pipeline_context_loaded", {
+            tabId: senderTabId,
+            topic,
+            pageUrl: url || "",
+          });
 
-              const prompt = buildInterventionPrompt(interventionData);
-              logDebug("intervention_pipeline_prompt_ready", {
-                tabId: senderTabId,
-                promptLength: prompt.length,
-              });
-
-              const nudge = await requestInterventionNudge(prompt, {
-                tabId: senderTabId,
-                topic,
-              });
-
-              const finalNudge = nudge || buildInterventionFallback(interventionData);
-              logDebug("intervention_pipeline_nudge_ready", {
-                tabId: senderTabId,
-                source: nudge ? "backend" : "fallback",
-                nudgeLength: finalNudge.length,
-              });
-
-              sendIntervene(senderTabId, {
-                ...interventionData,
-                nudge: finalNudge,
-              });
-
-              logDebug("intervention_pipeline_dispatched", {
-                tabId: senderTabId,
-                topic,
-              });
-            }
-          );
+          startInterventionLoop(senderTabId, interventionData);
         }
       } catch (err) {
         logDebug("relevance_request_failed", {
@@ -1223,6 +1192,7 @@ function sendIntervene(tabId, data, attempt = 1) {
 }
 
 function sendClearIntervention(tabId, reason) {
+  stopInterventionLoop(tabId, `clear_${reason}`);
   chrome.tabs.sendMessage(tabId, { action: "bibinClearIntervention", reason }, () => {
     const errorMessage = chrome.runtime.lastError?.message;
     if (!errorMessage || isNoResponseExpectedError(errorMessage)) {
