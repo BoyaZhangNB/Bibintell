@@ -1,4 +1,5 @@
 import os
+import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,7 +15,14 @@ bibin = BibinModel()
 # --- SUPABASE SETUP ---
 SUPABASE_URL = "https://oithszuedqqxcwfadzgu.supabase.co"
 SUPABASE_KEY = "sb_publishable_y6ftzLKBPLConSbVIlnPmg_OpOHhNfx"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Optional[Client] = None
+supabase_init_error: Optional[str] = None
+
+try:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as e:
+    supabase_init_error = str(e)
+    print(f"[WARN] Supabase init failed: {supabase_init_error}")
 
 EXTENSION_ID = "idjoaimffdnjooloaejdfekolapfmmdl"
 
@@ -28,13 +36,16 @@ app.add_middleware(
 # --- REQUEST MODELS ---
 class ChatRequest(BaseModel):
     message: str
-    history: Optional[List[dict]] = []
+    history: Optional[List[dict]] = None
 
 class RelevanceRequest(BaseModel):
     topic: str
     title: str
     content: str
     url: str
+
+class NudgeRequest(BaseModel):
+    prompt: str
 
 class SessionLog(BaseModel):
     subject: str
@@ -50,31 +61,95 @@ class SessionLog(BaseModel):
 
 @app.post("/chat")
 async def chat(body: ChatRequest):
+    started = time.time()
+    print(
+        f"[CHAT] received message_len={len(body.message or '')} history_len={len(body.history or [])}",
+        flush=True,
+    )
     try:
-        response = bibin.chat(body.message)
+        response = bibin.chat(body.message, body.history)
+        print(
+            f"[CHAT] success reply_len={len(response or '')} elapsed_ms={int((time.time() - started) * 1000)}",
+            flush=True,
+        )
         return {"reply": response}
     except Exception as e:
+        print(
+            f"[CHAT] error elapsed_ms={int((time.time() - started) * 1000)} error={e}",
+            flush=True,
+        )
         import traceback; traceback.print_exc()
         return {"reply": "Oops, I had a hiccup. Try again!", "error": str(e)}
 
 
 @app.post("/check_relevance")
 async def check_relevance(body: RelevanceRequest):
+    started = time.time()
+    print(
+        f"[CHECK] received topic={body.topic!r} title={body.title[:120]!r} content_len={len(body.content or '')}",
+        flush=True,
+    )
     try:
         result = analyze_relevance(body.topic, body.title, body.content)
+        relevant = result.get("relevant", True)
+        reason = result.get("reason", "")
+
+        print(
+            f"[CHECK] result relevant={relevant} elapsed_ms={int((time.time() - started) * 1000)} reason={reason[:180]!r}",
+            flush=True,
+        )
+
+        if relevant is False:
+            print(
+                "[CHECK] intervention_required=true; service_worker_should_call=/nudge",
+                flush=True,
+            )
+
         return {
-            "relevant": result.get("relevant", True),
-            "reason":   result.get("reason", ""),
+            "relevant": relevant,
+            "reason": reason,
             "drift_detected": False,   # kept for extension compatibility, always False now
             "llm_analysis": result,
         }
     except Exception as e:
+        print(
+            f"[CHECK] error elapsed_ms={int((time.time() - started) * 1000)} error={e}",
+            flush=True,
+        )
         import traceback; traceback.print_exc()
         return {
             "relevant": True,
             "reason": "Error during analysis — defaulting to relevant.",
             "drift_detected": False,
             "llm_analysis": None,
+            "error": str(e)
+        }
+
+
+@app.post("/nudge")
+async def nudge(body: NudgeRequest):
+    started = time.time()
+    print("🦫 NUDGE ENDPOINT HIT", flush=True)
+    prompt = body.prompt or ""
+    print(
+        f"[NUDGE] received prompt_len={len(prompt)} preview={prompt[:180]!r}",
+        flush=True,
+    )
+    try:
+        nudge_text = bibin.generate_nudge(body.prompt)
+        print(
+            f"[NUDGE] success nudge_len={len(nudge_text or '')} elapsed_ms={int((time.time() - started) * 1000)} nudge={nudge_text!r}",
+            flush=True,
+        )
+        return {"nudge": nudge_text}
+    except Exception as e:
+        print(
+            f"[NUDGE] error elapsed_ms={int((time.time() - started) * 1000)} error={e}",
+            flush=True,
+        )
+        import traceback; traceback.print_exc()
+        return {
+            "nudge": "Back to your study topic now. Stay focused.",
             "error": str(e)
         }
 
@@ -86,12 +161,19 @@ async def reset_session():
 
 @app.get("/debug_status")
 async def debug_status():
-    return {"message": "Drift detection removed — LLM-only mode active."}
+    return {
+        "message": "Drift detection removed — LLM-only mode active.",
+        "supabase_connected": supabase is not None,
+        "supabase_init_error": supabase_init_error,
+    }
 
 
 @app.post("/log-session")
 async def log_session(data: SessionLog):
     """Saves the completed Dam Session to Supabase."""
+    if supabase is None:
+        return {"status": "error", "message": f"Supabase unavailable: {supabase_init_error or 'init failed'}"}
+
     try:
         supabase.table("dam_sessions").insert({
             "user_id":                "legend_1",
@@ -112,6 +194,9 @@ async def log_session(data: SessionLog):
 @app.get("/user-stats")
 async def get_user_stats():
     """Streak, total study time, and top distraction site."""
+    if supabase is None:
+        return {"streak": 0, "total_study_mins": 0, "top_distraction": "None", "total_interventions": 0}
+
     try:
         res = supabase.table("dam_sessions").select("*").eq("user_id", "legend_1").execute()
         sessions = res.data
@@ -153,6 +238,9 @@ async def get_user_stats():
 @app.get("/session-history")
 async def get_session_history():
     """All past sessions for the stats history table."""
+    if supabase is None:
+        return {"sessions": []}
+
     try:
         res = (
             supabase.table("dam_sessions")

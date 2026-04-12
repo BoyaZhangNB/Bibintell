@@ -9,69 +9,113 @@
 <body>
   <div class="container">
     <header>
-      <h1>🔍 Bibin Debug Console</h1>
-      <button id="refreshBtn">Refresh</button>
+      <h1>Bibin Debug Console</h1>
+      <div class="header-actions">
+        <button id="refreshBtn">Refresh</button>
+      </div>
     </header>
 
-    <!-- Study Session Info -->
     <section class="card">
-      <h2>📚 Study Session</h2>
+      <h2>Study Session</h2>
       <div class="info-grid">
         <div class="info-item">
-          <label>Study Topic:</label>
+          <label>Study Topic</label>
           <span id="studyTopic" class="value">-</span>
         </div>
         <div class="info-item">
-          <label>Session Status:</label>
+          <label>Session Status</label>
           <span id="sessionStatus" class="value status-badge">Inactive</span>
         </div>
         <div class="info-item">
-          <label>Total Duration:</label>
+          <label>Total Duration</label>
           <span id="totalDuration" class="value">-</span>
         </div>
         <div class="info-item">
-          <label>Elapsed Time:</label>
+          <label>Elapsed Time</label>
           <span id="elapsedTime" class="value">-</span>
         </div>
+        <div class="info-item">
+          <label>Total Pages Checked</label>
+          <span id="totalPages" class="value">0</span>
+        </div>
+        <div class="info-item">
+          <label>Relevant Pages</label>
+          <span id="relevantPages" class="value">0</span>
+        </div>
+        <div class="info-item">
+          <label>Interventions</label>
+          <span id="interventions" class="value">0</span>
+        </div>
+        <div class="info-item">
+          <label>Distraction Sites</label>
+          <span id="distractionSites" class="value">None</span>
+        </div>
       </div>
     </section>
 
-    <!-- Backend Stats -->
     <section class="card">
-      <h2>🧠 Backend Statistics</h2>
+      <h2>Popup and Runtime State</h2>
       <div class="info-grid">
         <div class="info-item">
-          <label>Similarity History Length:</label>
-          <span id="historyLength" class="value">-</span>
+          <label>Active Tab</label>
+          <span id="activeTab" class="value">-</span>
         </div>
         <div class="info-item">
-          <label>Vector Store Size:</label>
-          <span id="vectorStoreSize" class="value">-</span>
+          <label>Active URL</label>
+          <span id="activeUrl" class="value mono">-</span>
         </div>
         <div class="info-item">
-          <label>Drift Detected:</label>
-          <span id="driftDetected" class="value status-badge">-</span>
+          <label>bibinDone</label>
+          <span id="bibinDone" class="value">-</span>
         </div>
         <div class="info-item">
-          <label>Recent Average Score:</label>
-          <span id="recentAverage" class="value">-</span>
+          <label>bibinShown</label>
+          <span id="bibinShown" class="value">-</span>
+        </div>
+        <div class="info-item">
+          <label>startupIntroPending</label>
+          <span id="startupIntroPending" class="value">-</span>
+        </div>
+        <div class="info-item">
+          <label>startupIntroSource</label>
+          <span id="startupIntroSource" class="value">-</span>
+        </div>
+        <div class="info-item">
+          <label>Last Bibin Decision</label>
+          <span id="lastDecision" class="value">-</span>
+        </div>
+        <div class="info-item">
+          <label>Last Active Tab</label>
+          <span id="lastActiveTab" class="value">-</span>
         </div>
       </div>
     </section>
 
-    <!-- Similarity Score Chart -->
     <section class="card">
-      <h2>📊 Similarity Score History</h2>
-      <div id="similarityChart" class="chart-container">
-        <p class="no-data">No data available</p>
+      <h2>Backend Status</h2>
+      <div class="info-grid">
+        <div class="info-item">
+          <label>API Reachability</label>
+          <span id="backendReachability" class="value status-badge">Unknown</span>
+        </div>
+        <div class="info-item">
+          <label>Debug Endpoint Message</label>
+          <span id="backendMessage" class="value">-</span>
+        </div>
       </div>
     </section>
 
-    <!-- Tab Relevancy History -->
     <section class="card">
-      <h2>📑 Recent Tab Relevancy History</h2>
+      <h2>Recent Relevancy History</h2>
       <div id="relevancyHistory" class="history-container">
         <p class="no-data">No history available</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Event Log (Newest First)</h2>
+      <div id="eventLog" class="history-container">
+        <p class="no-data">No events captured yet</p>
       </div>
     </section>
 

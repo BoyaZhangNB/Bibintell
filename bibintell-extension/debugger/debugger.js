@@ -1,209 +1,258 @@
-// Debugger JavaScript
 const API_BASE = "http://127.0.0.1:8000";
 
-// Initialize on load
-document.addEventListener('DOMContentLoaded', () => {
-  loadDebugData();
-  startTimer();
+let lastState = null;
 
-  // Refresh button
-  document.getElementById('refreshBtn').addEventListener('click', loadDebugData);
+document.addEventListener("DOMContentLoaded", () => {
+  loadDebugData();
+  startElapsedTimer();
+
+  document.getElementById("refreshBtn").addEventListener("click", loadDebugData);
 });
 
-// Load all debug data
-async function loadDebugData() {
-  await Promise.all([
-    loadStudySession(),
-    loadBackendStats(),
-    loadRelevancyHistory()
-  ]);
+function sendRuntimeMessage(payload) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error("Runtime message timed out"));
+    }, 3000);
 
+    chrome.runtime.sendMessage(payload, (response) => {
+      clearTimeout(timeoutId);
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response || {});
+    });
+  });
+}
+
+function storageGetLocal(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (result) => resolve(result || {}));
+  });
+}
+
+function storageGetSession(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.session.get(keys, (result) => resolve(result || {}));
+  });
+}
+
+function getActiveTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs && tabs[0] ? tabs[0] : null;
+      resolve(
+        tab
+          ? {
+              id: tab.id,
+              title: tab.title || "",
+              url: tab.url || "",
+              status: tab.status || "",
+            }
+          : null
+      );
+    });
+  });
+}
+
+async function loadDebugData() {
+  await loadRuntimeState();
+  await Promise.all([loadBackendStatus(), loadRelevancyHistory(), loadEventLog()]);
   updateTimestamp();
 }
 
-// Load study session info from chrome storage
-async function loadStudySession() {
-  chrome.storage.local.get([
-    'studySubject',
-    'studyDuration',
-    'studySessionActive',
-    'studySessionStartTime'
-  ], (result) => {
-    // Study topic
-    const topicEl = document.getElementById('studyTopic');
-    topicEl.textContent = result.studySubject || 'No active study session';
-
-    // Session status
-    const statusEl = document.getElementById('sessionStatus');
-    const isActive = result.studySessionActive || false;
-    statusEl.textContent = isActive ? 'Active' : 'Inactive';
-    statusEl.className = 'value status-badge ' + (isActive ? 'active' : 'inactive');
-
-    // Total duration
-    const durationEl = document.getElementById('totalDuration');
-    if (result.studyDuration) {
-      durationEl.textContent = result.studyDuration + ' min';
-    } else {
-      durationEl.textContent = '-';
-    }
-
-    // Elapsed time (will be updated by timer)
-    updateElapsedTime(result.studySessionStartTime, isActive);
-  });
-}
-
-// Load backend statistics
-async function loadBackendStats() {
+async function loadRuntimeState() {
   try {
-    const response = await fetch(`${API_BASE}/debug_status`);
-    const data = await response.json();
+    const [localData, sessionData, activeTabData] = await Promise.all([
+      storageGetLocal([
+        "studySubject",
+        "studyDuration",
+        "studyActive",
+        "studySessionActive",
+        "studySessionStartTime",
+        "sessionInterventions",
+        "sessionDistractionSites",
+        "sessionTotalPages",
+        "sessionRelevantPages",
+        "lastActiveTab",
+        "lastBibinDecision",
+        "lastBibinDecisionAt",
+        "relevancyHistory",
+      ]),
+      storageGetSession(["bibinDone", "bibinShown", "startupIntroPending", "startupIntroSource", "startupIntroAt"]),
+      getActiveTab(),
+    ]);
 
-    // History length
-    document.getElementById('historyLength').textContent = data.history_length || 0;
+    const data = {
+      ok: true,
+      now: Date.now(),
+      local: localData,
+      session: sessionData,
+      activeTab: activeTabData,
+    };
+    lastState = data;
 
-    // Vector store size
-    document.getElementById('vectorStoreSize').textContent = data.vector_store_size || 0;
+    const local = data.local || {};
+    const session = data.session || {};
+    const activeTab = data.activeTab || null;
 
-    // Drift detected
-    const driftEl = document.getElementById('driftDetected');
-    const hasDrift = data.drift_detected || false;
-    driftEl.textContent = hasDrift ? 'Yes' : 'No';
-    driftEl.className = 'value status-badge ' + (hasDrift ? 'inactive' : 'active');
+    const studyActive = Boolean(local.studySessionActive || local.studyActive);
 
-    // Recent average
-    const avgEl = document.getElementById('recentAverage');
-    if (data.recent_average !== null && data.recent_average !== undefined) {
-      avgEl.textContent = data.recent_average.toFixed(3);
-    } else {
-      avgEl.textContent = '-';
-    }
+    safeSet("studyTopic", local.studySubject || "No active study session");
+    setBadge("sessionStatus", studyActive ? "Active" : "Inactive", studyActive);
+    safeSet("totalDuration", local.studyDuration ? `${local.studyDuration} min` : "-");
 
-    // Draw similarity chart
-    drawSimilarityChart(data.similarity_history || []);
+    safeSet("totalPages", String(local.sessionTotalPages || 0));
+    safeSet("relevantPages", String(local.sessionRelevantPages || 0));
+    safeSet("interventions", String(local.sessionInterventions || 0));
 
+    const distractionSites = Array.isArray(local.sessionDistractionSites) ? local.sessionDistractionSites : [];
+    safeSet("distractionSites", distractionSites.length ? distractionSites.join(", ") : "None");
+
+    safeSet("activeTab", activeTab?.title || "No active tab");
+    safeSet("activeUrl", activeTab?.url || "-");
+
+    safeSet("bibinDone", String(Boolean(session.bibinDone)));
+    safeSet("bibinShown", String(Boolean(session.bibinShown)));
+    safeSet("startupIntroPending", String(Boolean(session.startupIntroPending)));
+    safeSet("startupIntroSource", session.startupIntroSource || "-");
+
+    const decisionText = local.lastBibinDecision
+      ? `${local.lastBibinDecision} @ ${new Date(local.lastBibinDecisionAt || Date.now()).toLocaleTimeString()}`
+      : "-";
+    safeSet("lastDecision", decisionText);
+    safeSet("lastActiveTab", local.lastActiveTab || "-");
+
+    updateElapsedTime();
   } catch (error) {
-    console.error('Failed to load backend stats:', error);
-    document.getElementById('historyLength').textContent = 'Error';
-    document.getElementById('vectorStoreSize').textContent = 'Error';
-    document.getElementById('driftDetected').textContent = 'Error';
-    document.getElementById('recentAverage').textContent = 'Error';
+    console.error("Failed to load runtime state:", error);
   }
 }
 
-// Load relevancy history from chrome storage
-async function loadRelevancyHistory() {
-  chrome.storage.local.get(['relevancyHistory'], (result) => {
-    const history = result.relevancyHistory || [];
-    const container = document.getElementById('relevancyHistory');
+async function loadBackendStatus() {
+  const reachabilityEl = document.getElementById("backendReachability");
+  const messageEl = document.getElementById("backendMessage");
 
-    if (history.length === 0) {
-      container.innerHTML = '<p class="no-data">No history available</p>';
-      return;
+  try {
+    const response = await fetch(`${API_BASE}/debug_status`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
 
-    // Reverse to show most recent first
-    const reversedHistory = [...history].reverse();
-
-    container.innerHTML = reversedHistory.slice(0, 10).map(item => {
-      const time = new Date(item.timestamp).toLocaleTimeString();
-      const result = item.result;
-
-      // Determine relevancy status
-      let relevancyClass = 'neutral';
-      let score = '-';
-      let reason = 'No reason provided';
-
-      if (result.relevant === true) {
-        relevancyClass = 'relevant';
-        score = result.confidence?.toFixed(3) || '-';
-        reason = result.reason || 'Relevant to study topic';
-      } else if (result.relevant === false) {
-        relevancyClass = 'not-relevant';
-        score = result.confidence?.toFixed(3) || '-';
-        reason = result.reason || 'Not relevant to study topic';
-      } else if (result.similarity_score !== undefined) {
-        score = result.similarity_score.toFixed(3);
-        if (result.llm_analysis) {
-          reason = JSON.stringify(result.llm_analysis);
-        }
-      }
-
-      return `
-        <div class="history-item ${relevancyClass}">
-          <div class="history-header">
-            <div class="history-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
-            <div class="history-score">Score: ${score}</div>
-          </div>
-          <div class="history-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
-          <div class="history-reason">${escapeHtml(reason)}</div>
-          <div class="history-time">Checked at ${time}</div>
-        </div>
-      `;
-    }).join('');
-  });
+    const data = await response.json();
+    setBadge("backendReachability", "Online", true);
+    messageEl.textContent = data.message || "No message";
+  } catch (error) {
+    setBadge("backendReachability", "Offline", false);
+    messageEl.textContent = String(error);
+  }
 }
 
-// Draw similarity score chart
-function drawSimilarityChart(scores) {
-  const container = document.getElementById('similarityChart');
+async function loadRelevancyHistory() {
+  const state = lastState?.local || {};
+  const history = Array.isArray(state.relevancyHistory) ? state.relevancyHistory : [];
+  const container = document.getElementById("relevancyHistory");
 
-  if (!scores || scores.length === 0) {
-    container.innerHTML = '<p class="no-data">No data available</p>';
+  if (!history.length) {
+    container.innerHTML = '<p class="no-data">No history available</p>';
     return;
   }
 
-  // Take last 30 scores or all if less
-  const recentScores = scores.slice(-30);
-  const maxHeight = 180; // pixels
+  const rows = [...history].reverse().slice(0, 12).map((item) => {
+    const result = item.result || {};
+    const relevant = result.relevant;
+    const css = relevant === true ? "relevant" : relevant === false ? "not-relevant" : "neutral";
+    const verdict = relevant === true ? "Relevant" : relevant === false ? "Not Relevant" : "Unknown";
+    const reason = result.reason || "No reason provided";
 
-  container.innerHTML = recentScores.map((score, index) => {
-    const height = Math.max(score * maxHeight, 5); // Minimum 5px for visibility
-    const color = score > 0.8 ? '#28a745' : score > 0.5 ? '#ffc107' : '#dc3545';
     return `
-      <div class="chart-bar"
-           style="height: ${height}px; background: ${color};"
-           data-value="${score.toFixed(3)}"
-           title="Score ${index + 1}: ${score.toFixed(3)}">
+      <div class="history-item ${css}">
+        <div class="history-header">
+          <div class="history-title" title="${escapeHtml(item.title || "(no title)")}">${escapeHtml(item.title || "(no title)")}</div>
+          <div class="history-score">${verdict}</div>
+        </div>
+        <div class="history-url" title="${escapeHtml(item.url || "")}">${escapeHtml(item.url || "")}</div>
+        <div class="history-reason">${escapeHtml(reason)}</div>
+        <div class="history-time">Checked at ${new Date(item.timestamp || Date.now()).toLocaleTimeString()}</div>
       </div>
     `;
-  }).join('');
+  });
+
+  container.innerHTML = rows.join("");
 }
 
-// Update elapsed time
-function updateElapsedTime(startTime, isActive) {
-  const elapsedEl = document.getElementById('elapsedTime');
+async function loadEventLog() {
+  const container = document.getElementById("eventLog");
+
+  try {
+    const localData = await storageGetLocal(["debugEvents"]);
+    const events = Array.isArray(localData.debugEvents) ? localData.debugEvents : [];
+
+    if (!events.length) {
+      container.innerHTML = '<p class="no-data">No events captured yet</p>';
+      return;
+    }
+
+    const rows = [...events].reverse().slice(0, 60).map((item) => {
+      const details = item.details ? escapeHtml(JSON.stringify(item.details)) : "{}";
+      return `
+        <div class="history-item neutral">
+          <div class="history-header">
+            <div class="history-title">${escapeHtml(item.event || "unknown_event")}</div>
+            <div class="history-score">${new Date(item.timestamp || Date.now()).toLocaleTimeString()}</div>
+          </div>
+          <div class="history-reason mono">${details}</div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = rows.join("");
+  } catch (error) {
+    container.innerHTML = `<p class="no-data">Failed to load event log: ${escapeHtml(String(error))}</p>`;
+  }
+}
+
+function updateElapsedTime() {
+  const local = lastState?.local || {};
+  const isActive = Boolean(local.studySessionActive || local.studyActive);
+  const startTime = local.studySessionStartTime;
 
   if (!isActive || !startTime) {
-    elapsedEl.textContent = '-';
+    safeSet("elapsedTime", "-");
     return;
   }
 
   const elapsed = Date.now() - startTime;
-  const minutes = Math.floor(elapsed / 60000);
-  const seconds = Math.floor((elapsed % 60000) / 1000);
-
-  elapsedEl.textContent = `${minutes}m ${seconds}s`;
+  const mins = Math.floor(elapsed / 60000);
+  const secs = Math.floor((elapsed % 60000) / 1000);
+  safeSet("elapsedTime", `${mins}m ${secs}s`);
 }
 
-// Start timer to update elapsed time every second
-function startTimer() {
+function startElapsedTimer() {
   setInterval(() => {
-    chrome.storage.local.get(['studySessionStartTime', 'studySessionActive'], (result) => {
-      if (result.studySessionActive && result.studySessionStartTime) {
-        updateElapsedTime(result.studySessionStartTime, true);
-      }
-    });
+    updateElapsedTime();
   }, 1000);
 }
 
-// Update timestamp
 function updateTimestamp() {
-  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+  safeSet("lastUpdate", new Date().toLocaleTimeString());
 }
 
-// Escape HTML to prevent XSS
+function setBadge(id, text, active) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `value status-badge ${active ? "active" : "inactive"}`;
+}
+
+function safeSet(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
 function escapeHtml(text) {
-  const div = document.createElement('div');
+  const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
 }

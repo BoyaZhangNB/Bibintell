@@ -71,8 +71,21 @@ document.addEventListener('mouseup', () => {
   }
 });
 
-// Conversation History
-let conversation = [];
+// Session + intervention state
+let petMode = "idle";
+let interventionReminderTimer = null;
+
+function sendRuntimeMessage(payload) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response || {});
+    });
+  });
+}
 
 
 // Position bubble above pet
@@ -86,15 +99,41 @@ function positionBubble() {
 
 // Hide Bibin permanently until summoned again
 function hideBibin() {
+  petMode = "idle";
+  clearInterventionReminder();
   speech.style.display = "none";
   pet.style.display = "none";
   chrome.runtime.sendMessage({ action: "bibinDone" });
 }
 
+function clearInterventionReminder() {
+  if (interventionReminderTimer) {
+    clearInterval(interventionReminderTimer);
+    interventionReminderTimer = null;
+  }
+}
+
+function clearInterventionMode(hideUi = true) {
+  clearInterventionReminder();
+  if (petMode === "intervention") {
+    petMode = "idle";
+  }
+  if (hideUi && pet.style.display === "block") {
+    speech.style.display = "none";
+    pet.style.display = "none";
+  }
+}
+
 // Display a message with optional input field
 function displayMessage(text, showInput = true) {
   playConversationAnimation();
-  speech.innerHTML = `<div>${text}</div>`;
+
+  speech.innerHTML = "";
+  const messageDiv = document.createElement("div");
+  messageDiv.textContent = text;
+  messageDiv.style.whiteSpace = "pre-wrap";
+  speech.appendChild(messageDiv);
+
   if (showInput) {
     speech.appendChild(input);
     input.focus();
@@ -105,36 +144,15 @@ function displayMessage(text, showInput = true) {
 }
 
 
-// Get AI reply and display it
-async function showSpeech(userMessage) {
-  try {
-    const response = await fetch("http://127.0.0.1:8000/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: userMessage,
-        history: conversation
-      }),
-    });
-    const data = await response.json();
-    const reply = data.reply;
-    conversation.push({ role: "assistant", content: reply });  // must be "assistant", not "bibin"
-    displayMessage(reply);
-  } catch (err) {
-    displayMessage("Oops! I can't connect right now. Is the server running?");
-    console.error("Bibin fetch error:", err);
-  }
-}
-
-
 // Show Yes/No flow
 function startFlow() {
+  clearInterventionMode(false);
+  petMode = "intro";
   pet.style.display = "block";
   pet.style.bottom = "20px";
   pet.style.right = "20px";
   pet.style.left = "";
   pet.style.top = "";
-  conversation = [];
 
   playPetAnimation("appearing", {
     durationMs: 2000,
@@ -164,10 +182,9 @@ function startFlow() {
 
   yesBtn.addEventListener("click", () => {
     input._mode = "subject";
-    fetch("http://127.0.0.1:8000/reset_session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  }).catch(err => console.log("Reset failed:", err));
+    sendRuntimeMessage({ action: "resetSessionApi" }).catch((err) => {
+      console.log("Reset failed:", err);
+    });
 
     displayMessage("What subject are we tackling? 📚");
   });
@@ -175,6 +192,7 @@ function startFlow() {
   noBtn.addEventListener("click", () => {
     // No input needed — user is done
     displayMessage("Okay, good luck! Come back if you need me. 👋", false);
+    chrome.runtime.sendMessage({ action: "bibinDeclined" });
     chrome.storage.local.set({ studyActive: false });
     setTimeout(() => hideBibin(), 2000);
   });
@@ -197,7 +215,6 @@ input.addEventListener("keydown", async (e) => {
 
   if (input._mode === "subject") {
     input._mode = "duration";
-    conversation.push({ role: "user", content: userMessage });
 
     // Save subject to storage
     chrome.storage.local.set({ studySubject: userMessage });
@@ -208,7 +225,6 @@ input.addEventListener("keydown", async (e) => {
 
   if (input._mode === "duration") {
     input._mode = null;
-    conversation.push({ role: "user", content: userMessage });
 
     // Save duration to storage
     chrome.storage.local.set({ studyDuration: userMessage, studyActive: true });
@@ -222,63 +238,67 @@ input.addEventListener("keydown", async (e) => {
 
 
 // Listen for summon message from background
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  let handled = false;
+
   if (message.action === "showBibin") {
     startFlow();
+    handled = true;
   } else if (message.action === "animateBibin" && message.animation) {
     playPetAnimation(message.animation, {
       durationMs: 2000,
       onComplete: setPetIdleFrame,
     });
+    handled = true;
   }
 
   if (message.action === "bibinIntervene") {
-    intervene(message.topic, message.reason);
+    intervene(message);
+    handled = true;
   }
+
+  if (message.action === "bibinClearIntervention") {
+    clearInterventionMode(true);
+    handled = true;
+  }
+
+  if (handled) {
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  return false;
 });
 
 
 // Intervention flow
-function intervene(topic, reason) {
-  // Don't interrupt if Bibin is already visible
-  if (pet.style.display === "block") return;
-  chrome.storage.local.get("studyActive", (result) => {
-  console.log("studyActive:", result.studyActive);
-});
+function intervene(interventionPayload) {
+  const topic = interventionPayload?.topic || "Unknown topic";
+  const reason = interventionPayload?.reason || "You seem to be drifting from your topic.";
+  const pageTitle = interventionPayload?.pageTitle || document.title || "Unknown page";
+  const nudge = typeof interventionPayload?.nudge === "string" ? interventionPayload.nudge.trim() : "";
 
-  chrome.storage.local.get("studyActive", (result) => {
-    if (!result.studyActive) return;
+  chrome.storage.local.get(["studyActive"], (result) => {
+    if (!result.studyActive) {
+      return;
+    }
 
+    petMode = "intervention";
     pet.style.display = "block";
     pet.style.bottom = "20px";
     pet.style.right = "20px";
     pet.style.left = "";
     pet.style.top = "";
 
-    showSpeechWithContext(
-      `The user is supposed to be studying "${topic}" but is on an unrelated page. Give a short, friendly nudge to get them back on track. Max 2 sentences.`
-    );
+    const fallback = `${topic} is waiting. You're on ${pageTitle}. ${reason}`;
+    displayMessage(nudge || fallback, false);
   });
 }
 
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace !== "local") return;
 
-// Get AI reply with a custom prompt (no user history needed)
-async function showSpeechWithContext(prompt) {
-  try {
-    const response = await fetch("http://127.0.0.1:8000/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: prompt
-      }),
-    });
-    const data = await response.json();
-    displayMessage(data.reply, true);
-
-    // Set input mode so user can respond to Bibin
-    input._mode = "intervention";
-  } catch (err) {
-    displayMessage("My apologies, I'm having trouble connecting to the AI service.", false);
-    //setTimeout(() => hideBibin(), 3000);
+  if (changes.studyActive && !changes.studyActive.newValue) {
+    clearInterventionMode(true);
   }
-}
+});

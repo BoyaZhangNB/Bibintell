@@ -1,4 +1,433 @@
 const API = "http://127.0.0.1:8000";
+const BACKEND_REQUEST_TIMEOUT_MS = 20000;
+const INTERVENTION_REPEAT_MS = 10000;
+
+const DEBUG_EVENTS_KEY = "debugEvents";
+const MAX_DEBUG_EVENTS = 200;
+const interventionLoops = new Map();
+
+function logDebug(event, details = {}) {
+  const payload = {
+    timestamp: Date.now(),
+    event,
+    details,
+  };
+
+  console.log(`[BibinDebug] ${event}`, details);
+
+  chrome.storage.local.get([DEBUG_EVENTS_KEY], (result) => {
+    const events = Array.isArray(result[DEBUG_EVENTS_KEY]) ? result[DEBUG_EVENTS_KEY] : [];
+    events.push(payload);
+
+    if (events.length > MAX_DEBUG_EVENTS) {
+      events.splice(0, events.length - MAX_DEBUG_EVENTS);
+    }
+
+    chrome.storage.local.set({ [DEBUG_EVENTS_KEY]: events });
+  });
+}
+
+function isEligibleUrl(url) {
+  if (!url) return false;
+  return !(
+    url.startsWith("chrome://") ||
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("about:")
+  );
+}
+
+function isNoResponseExpectedError(errorMessage) {
+  return typeof errorMessage === "string" &&
+    errorMessage.includes("The message port closed before a response was received.");
+}
+
+function isReceiverMissingError(errorMessage) {
+  return typeof errorMessage === "string" &&
+    errorMessage.includes("Could not establish connection. Receiving end does not exist.");
+}
+
+function getActiveTab(callback) {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    callback(tabs && tabs[0] ? tabs[0] : null);
+  });
+}
+
+function requestShowBibin(tabId, source, options = {}) {
+  const force = Boolean(options.force);
+
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab) {
+      logDebug("show_bibin_failed_tab_lookup", {
+        source,
+        tabId,
+        error: chrome.runtime.lastError?.message || "Tab not found",
+      });
+      return;
+    }
+
+    const url = tab.url || "";
+    if (!isEligibleUrl(url)) {
+      logDebug("show_bibin_skipped_ineligible_url", { source, tabId, url });
+      return;
+    }
+
+    chrome.storage.session.get(["bibinDone", "bibinShown", "startupIntroPending"], (session) => {
+      if (!force && session.bibinDone) {
+        logDebug("show_bibin_blocked_done", { source, tabId });
+        return;
+      }
+
+      if (!force && session.bibinShown) {
+        logDebug("show_bibin_blocked_already_shown", { source, tabId });
+        return;
+      }
+
+      chrome.storage.session.set({ bibinShown: true }, () => {
+        chrome.tabs.sendMessage(tabId, { action: "showBibin" }, () => {
+          const errorMessage = chrome.runtime.lastError?.message;
+
+          if (errorMessage && !isNoResponseExpectedError(errorMessage)) {
+            logDebug("show_bibin_send_failed", {
+              source,
+              tabId,
+              url,
+              error: errorMessage,
+            });
+            chrome.storage.session.set({ bibinShown: false });
+            return;
+          }
+
+          if (errorMessage && isNoResponseExpectedError(errorMessage)) {
+            logDebug("show_bibin_sent_without_ack", { source, tabId, url });
+          }
+
+          logDebug("show_bibin_sent", { source, tabId, url, force });
+          chrome.storage.session.set({ startupIntroPending: false });
+        });
+      });
+    });
+  });
+}
+
+function tryShowOnActiveTab(source, options = {}) {
+  getActiveTab((tab) => {
+    if (!tab?.id) {
+      logDebug("show_bibin_no_active_tab", { source });
+      return;
+    }
+
+    requestShowBibin(tab.id, source, options);
+  });
+}
+
+function armStartupIntro(source) {
+  chrome.storage.session.set(
+    {
+      bibinDone: false,
+      bibinShown: false,
+      startupIntroPending: true,
+      startupIntroSource: source,
+      startupIntroAt: Date.now(),
+    },
+    () => {
+      logDebug("startup_intro_armed", { source });
+      tryShowOnActiveTab(`${source}_immediate`);
+
+      [1000, 3000].forEach((delayMs) => {
+        setTimeout(() => {
+          tryShowOnActiveTab(`${source}_retry_${delayMs}ms`);
+        }, delayMs);
+      });
+    }
+  );
+}
+
+function buildInterventionPrompt(data) {
+  const topic = data.topic || "Unknown topic";
+  const pageTitle = data.pageTitle || "Unknown page";
+  const pageUrl = data.pageUrl || "";
+  const reason = data.llmReason || data.reason || "You seem off-task.";
+  const interventions = Number.isInteger(data.interventions) ? data.interventions : 0;
+  const totalPages = Number.isInteger(data.totalPages) ? data.totalPages : 0;
+  const relevantPages = Number.isInteger(data.relevantPages) ? data.relevantPages : 0;
+  const elapsedMins = Number.isInteger(data.elapsedMins) ? data.elapsedMins : 0;
+  const reminderCount = Number.isInteger(data.reminderCount) ? data.reminderCount : 0;
+  const focusPercent = totalPages > 0 ? Math.round((relevantPages / totalPages) * 100) : 0;
+  const toneGuide = reminderCount === 0
+    ? "playful and witty with one light beaver pun"
+    : reminderCount <= 2
+      ? "firmer with less humor and clear accountability"
+      : "stern, direct, no fluff";
+
+  return `You are Bibin, a strict but friendly productivity beaver.
+
+Generate one intervention line that escalates with repeated reminders.
+
+Study topic: ${topic}
+Current page title: ${pageTitle}
+Current page url: ${pageUrl}
+Reason: ${reason}
+Interventions so far: ${interventions}
+Elapsed study minutes: ${elapsedMins}
+Focus percent: ${focusPercent}
+Reminder count on this same page: ${reminderCount + 1}
+Tone target: ${toneGuide}
+
+Rules:
+- Plain text only
+- One sentence
+- Max 24 words
+- Include study topic by name
+- Mention one concrete session metric (focus percent, interventions, or elapsed minutes)
+- Never be insulting`;
+}
+
+function buildInterventionFallback(data) {
+  const topic = data.topic || "your study topic";
+  const pageTitle = data.pageTitle || "this page";
+  const reminderCount = Number.isInteger(data.reminderCount) ? data.reminderCount : 0;
+  if (reminderCount === 0) {
+    return `${topic} needs you, not this page. Beaver believe in yourself and get back to studying.`;
+  }
+  if (reminderCount <= 2) {
+    return `Still off-track from ${topic}. You've had ${data.interventions || 0} nudges; return to focused work now.`;
+  }
+  return `Enough detours. Leave ${pageTitle} and resume ${topic} immediately.`;
+}
+
+function getLocalAsync(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (result) => resolve(result || {}));
+  });
+}
+
+function bumpSessionInterventions() {
+  chrome.storage.local.get(["sessionInterventions"], (result) => {
+    const current = Number.isInteger(result.sessionInterventions) ? result.sessionInterventions : 0;
+    chrome.storage.local.set({ sessionInterventions: current + 1 });
+  });
+}
+
+function stopInterventionLoop(tabId, reason = "") {
+  const state = interventionLoops.get(tabId);
+  if (!state) return;
+
+  if (state.timerId) {
+    clearInterval(state.timerId);
+  }
+
+  interventionLoops.delete(tabId);
+  logDebug("intervention_loop_stopped", { tabId, reason });
+}
+
+async function dispatchInterventionTick(tabId) {
+  const state = interventionLoops.get(tabId);
+  if (!state) return;
+
+  if (state.inFlight) {
+    logDebug("intervention_tick_skipped_inflight", {
+      tabId,
+      reminderCount: state.reminderCount,
+    });
+    return;
+  }
+
+  state.inFlight = true;
+  try {
+    const tab = await new Promise((resolve) => {
+      chrome.tabs.get(tabId, (tabData) => {
+        if (chrome.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        resolve(tabData || null);
+      });
+    });
+
+    if (!tab || !isEligibleUrl(tab.url || "")) {
+      stopInterventionLoop(tabId, "tab_missing_or_ineligible");
+      return;
+    }
+
+    if (state.pageUrl && tab.url !== state.pageUrl) {
+      stopInterventionLoop(tabId, "url_changed");
+      sendClearIntervention(tabId, "url_changed");
+      return;
+    }
+
+    const sessionData = await getLocalAsync([
+      "studyActive",
+      "studySessionStartTime",
+      "sessionInterventions",
+      "sessionTotalPages",
+      "sessionRelevantPages",
+    ]);
+
+    if (!sessionData.studyActive) {
+      stopInterventionLoop(tabId, "study_inactive");
+      return;
+    }
+
+    const now = Date.now();
+    const startTime = Number.isInteger(sessionData.studySessionStartTime)
+      ? sessionData.studySessionStartTime
+      : now;
+    const elapsedMins = Math.max(0, Math.round((now - startTime) / 60000));
+
+    const interventionData = {
+      reason: state.reason,
+      topic: state.topic,
+      pageTitle: state.pageTitle,
+      pageUrl: state.pageUrl,
+      llmReason: state.llmReason,
+      interventions: sessionData.sessionInterventions || 0,
+      totalPages: sessionData.sessionTotalPages || 0,
+      relevantPages: sessionData.sessionRelevantPages || 0,
+      elapsedMins,
+      reminderCount: state.reminderCount,
+    };
+
+    const prompt = buildInterventionPrompt(interventionData);
+    logDebug("intervention_pipeline_prompt_ready", {
+      tabId,
+      promptLength: prompt.length,
+      reminderCount: state.reminderCount,
+    });
+
+    const nudge = await requestInterventionNudge(prompt, {
+      tabId,
+      topic: state.topic,
+    });
+
+    const finalNudge = nudge || buildInterventionFallback(interventionData);
+    logDebug("intervention_pipeline_nudge_ready", {
+      tabId,
+      source: nudge ? "backend" : "fallback",
+      nudgeLength: finalNudge.length,
+      reminderCount: state.reminderCount,
+    });
+
+    sendIntervene(tabId, {
+      ...interventionData,
+      nudge: finalNudge,
+    });
+
+    bumpSessionInterventions();
+    state.reminderCount += 1;
+
+    logDebug("intervention_pipeline_dispatched", {
+      tabId,
+      topic: state.topic,
+      reminderCount: state.reminderCount,
+    });
+  } finally {
+    const latestState = interventionLoops.get(tabId);
+    if (latestState) {
+      latestState.inFlight = false;
+    }
+  }
+}
+
+function startInterventionLoop(tabId, interventionBase) {
+  const existing = interventionLoops.get(tabId);
+  const existingSamePage = existing && existing.pageUrl === (interventionBase.pageUrl || "");
+
+  if (existingSamePage) {
+    logDebug("intervention_loop_already_active", {
+      tabId,
+      pageUrl: interventionBase.pageUrl || "",
+    });
+    return;
+  }
+
+  stopInterventionLoop(tabId, "restart");
+
+  interventionLoops.set(tabId, {
+    ...interventionBase,
+    reminderCount: 0,
+    inFlight: false,
+    timerId: null,
+  });
+
+  logDebug("intervention_loop_started", {
+    tabId,
+    topic: interventionBase.topic || "",
+    pageUrl: interventionBase.pageUrl || "",
+    repeatMs: INTERVENTION_REPEAT_MS,
+  });
+
+  dispatchInterventionTick(tabId);
+
+  const state = interventionLoops.get(tabId);
+  if (!state) return;
+
+  state.timerId = setInterval(() => {
+    dispatchInterventionTick(tabId);
+  }, INTERVENTION_REPEAT_MS);
+}
+
+async function requestInterventionNudge(prompt, context = {}) {
+  let timeoutId = null;
+  try {
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), BACKEND_REQUEST_TIMEOUT_MS);
+
+    logDebug("intervention_nudge_call_start", {
+      tabId: context.tabId,
+      topic: context.topic || "",
+      promptLength: (prompt || "").length,
+    });
+
+    const response = await fetch(`${API}/nudge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({ prompt: prompt || "" }),
+    });
+
+    logDebug("intervention_nudge_call_response", {
+      tabId: context.tabId,
+      status: response.status,
+      ok: response.ok,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      logDebug("intervention_nudge_http_error", {
+        tabId: context.tabId,
+        status: response.status,
+        body: text,
+      });
+      return null;
+    }
+
+    logDebug("intervention_nudge_endpoint_ok", {
+      tabId: context.tabId,
+      status: response.status,
+    });
+
+    const data = await response.json();
+    const nudge = typeof data?.nudge === "string" ? data.nudge.trim() : "";
+
+    logDebug("intervention_nudge_call_success", {
+      tabId: context.tabId,
+      hasNudge: Boolean(nudge),
+      backendError: data?.error || "",
+    });
+
+    return nudge || null;
+  } catch (err) {
+    logDebug("intervention_nudge_call_failed", {
+      tabId: context.tabId,
+      error: String(err),
+    });
+    return null;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 // =====================
 // Track active tab title
@@ -7,6 +436,11 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   chrome.tabs.get(activeInfo.tabId, (tab) => {
     if (!tab) return;
     chrome.storage.local.set({ lastActiveTab: tab.title });
+    logDebug("tab_activated", {
+      tabId: activeInfo.tabId,
+      title: tab.title,
+      url: tab.url || "",
+    });
   });
 });
 
@@ -14,84 +448,99 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 // Study Session Management
 // =====================
 chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'local' && changes.studyActive) {
+  if (namespace === "local" && changes.studyActive) {
     const previousState = Boolean(changes.studyActive.oldValue);
     const currentState = Boolean(changes.studyActive.newValue);
 
     if (previousState === currentState) return;
 
+    logDebug("study_active_changed", {
+      previousState,
+      currentState,
+    });
+
     if (currentState) {
-      // Session starting — initialise all tracking keys
       chrome.storage.local.set({
         studySessionActive: true,
         studySessionStartTime: Date.now(),
         sessionInterventions: 0,
         sessionDistractionSites: [],
         sessionTotalPages: 0,
-        sessionRelevantPages: 0
+        sessionRelevantPages: 0,
       });
-      // ✅ Start timer using studyDuration
+
       chrome.storage.local.get("studyDuration", (r) => {
-        const mins = parseInt(r.studyDuration) || 0;
+        const mins = parseInt(r.studyDuration, 10) || 0;
+        logDebug("study_timer_start_requested", { durationMins: mins });
         startSessionTimer(mins);
       });
     } else {
-      // Session ending — log it then clean up
-      clearSessionTimer(); // ✅ cancel timer if session ended early
+      clearSessionTimer();
       endAndLogSession();
     }
   }
 });
 
-
 // =====================
 // End + log session to backend
 // =====================
 function endAndLogSession() {
-  chrome.storage.local.get([
-    "studySubject",
-    "studyDuration",
-    "studySessionStartTime",
-    "sessionInterventions",
-    "sessionDistractionSites",
-    "sessionTotalPages",
-    "sessionRelevantPages"
-  ], async (data) => {
-    if (!data.studySubject) return;
+  chrome.storage.local.get(
+    [
+      "studySubject",
+      "studyDuration",
+      "studySessionStartTime",
+      "sessionInterventions",
+      "sessionDistractionSites",
+      "sessionTotalPages",
+      "sessionRelevantPages",
+    ],
+    async (data) => {
+      if (!data.studySubject) {
+        logDebug("session_end_skipped_no_subject", {});
+        return;
+      }
 
-    const startTime    = data.studySessionStartTime || Date.now();
-    const actualMins   = Math.round((Date.now() - startTime) / 60000);
-    const intendedMins = parseInt(data.studyDuration) || 0;
+      const startTime = data.studySessionStartTime || Date.now();
+      const actualMins = Math.round((Date.now() - startTime) / 60000);
+      const intendedMins = parseInt(data.studyDuration, 10) || 0;
 
-    try {
-      await fetch(`${API}/log-session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subject:                data.studySubject || "Unknown",
-          intended_duration_mins: intendedMins,
-          actual_duration_mins:   actualMins,
-          interventions:          data.sessionInterventions || 0,
-          distraction_sites:      data.sessionDistractionSites || [],
-          total_pages:            data.sessionTotalPages || 0,
-          relevant_pages:         data.sessionRelevantPages || 0
-        })
+      try {
+        await fetch(`${API}/log-session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subject: data.studySubject || "Unknown",
+            intended_duration_mins: intendedMins,
+            actual_duration_mins: actualMins,
+            interventions: data.sessionInterventions || 0,
+            distraction_sites: data.sessionDistractionSites || [],
+            total_pages: data.sessionTotalPages || 0,
+            relevant_pages: data.sessionRelevantPages || 0,
+          }),
+        });
+
+        logDebug("session_logged_success", {
+          subject: data.studySubject,
+          intendedMins,
+          actualMins,
+        });
+      } catch (err) {
+        logDebug("session_logged_failed", {
+          error: String(err),
+        });
+      }
+
+      chrome.storage.local.set({
+        studySessionActive: false,
+        studySessionStartTime: null,
+        sessionInterventions: 0,
+        sessionDistractionSites: [],
+        sessionTotalPages: 0,
+        sessionRelevantPages: 0,
       });
-      console.log("Session logged successfully ✅");
-    } catch (err) {
-      console.log("Session log failed:", err);
     }
-
-    // Clean up session tracking keys
-    chrome.storage.local.set({
-      studySessionActive: false,
-      studySessionStartTime: null,
-      sessionInterventions: 0,
-      sessionDistractionSites: [],
-      sessionTotalPages: 0,
-      sessionRelevantPages: 0
-    });
-  });
+  );
 }
 
 // =====================
@@ -100,9 +549,10 @@ function endAndLogSession() {
 chrome.windows.onRemoved.addListener(() => {
   chrome.windows.getAll((windows) => {
     if (windows.length === 0) {
+      logDebug("all_windows_closed", {});
+
       chrome.storage.local.get("studyActive", (result) => {
         if (result.studyActive) {
-          // Setting studyActive false triggers endAndLogSession via onChanged above
           chrome.storage.local.set({ studyActive: false });
         }
       });
@@ -111,17 +561,15 @@ chrome.windows.onRemoved.addListener(() => {
 });
 
 // =====================
-// Auto-show Bibin on fresh browser launch
+// Auto-show Bibin on browser launch
 // =====================
-function resetSessionFlags() {
-  chrome.storage.session.clear(() => {
-    chrome.storage.session.set({ bibinDone: false, bibinShown: false });
-  });
-}
+chrome.runtime.onStartup.addListener(() => {
+  armStartupIntro("onStartup");
+});
 
-chrome.runtime.onStartup.addListener(resetSessionFlags);
-chrome.runtime.onInstalled.addListener(resetSessionFlags);
 chrome.runtime.onInstalled.addListener(() => {
+  armStartupIntro("onInstalled");
+
   chrome.storage.local.get(["lumberReserve", "purchasedItems"], (result) => {
     const updates = {};
 
@@ -140,38 +588,29 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // =====================
-// Tab fully loaded → show Bibin if needed (fallback)
+// Tab load fallback
 // =====================
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete" || !tab.active) return;
+  if (changeInfo.status !== "complete" || !tab?.active) return;
 
   const url = tab.url || "";
-  if (
-    url.startsWith("chrome://") ||
-    url.startsWith("chrome-extension://") ||
-    url.startsWith("about:")
-  ) return;
+  if (!isEligibleUrl(url)) return;
 
-  chrome.storage.session.get(["bibinDone", "bibinShown"], (result) => {
-    if (result.bibinDone || result.bibinShown) return;
-
-    chrome.storage.session.set({ bibinShown: true });
-
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tabId, { action: "showBibin" }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.log("Tab not ready (onUpdated):", chrome.runtime.lastError.message);
-          chrome.storage.session.set({ bibinShown: false });
-        }
-      });
-    }, 500);
-  });
+  requestShowBibin(tabId, "tabs.onUpdated");
 });
 
 // =====================
-// All message handling
+// Message handling
 // =====================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const action = message?.action || "unknown";
+  logDebug("runtime_message_received", {
+    action,
+    fromTabId: sender?.tab?.id,
+    fromUrl: sender?.tab?.url || "",
+    hasPrompt: typeof message?.prompt === "string",
+    hasMessage: typeof message?.message === "string",
+  });
 
   if (message.action === "storeGetLumberReserve") {
     chrome.storage.local.get(["lumberReserve"], (result) => {
@@ -183,9 +622,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "storeGetPurchasedItems") {
     chrome.storage.local.get(["purchasedItems"], (result) => {
-      const purchasedItems = result.purchasedItems && typeof result.purchasedItems === "object"
-        ? result.purchasedItems
-        : {};
+      const purchasedItems =
+        result.purchasedItems && typeof result.purchasedItems === "object"
+          ? result.purchasedItems
+          : {};
       sendResponse({ purchasedItems });
     });
     return true;
@@ -203,16 +643,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     chrome.storage.local.get(["lumberReserve", "purchasedItems"], (result) => {
       const reserve = Number.isInteger(result.lumberReserve) ? result.lumberReserve : 0;
-      const purchasedItems = result.purchasedItems && typeof result.purchasedItems === "object"
-        ? result.purchasedItems
-        : {};
+      const purchasedItems =
+        result.purchasedItems && typeof result.purchasedItems === "object"
+          ? result.purchasedItems
+          : {};
 
       if (reserve < price) {
         sendResponse({
           success: false,
           reason: "Not enough lumber",
           lumberReserve: reserve,
-          purchasedItems
+          purchasedItems,
         });
         return;
       }
@@ -225,7 +666,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         description: item.description,
         price,
         quantity: (current.quantity || 0) + 1,
-        lastPurchasedAt: Date.now()
+        lastPurchasedAt: Date.now(),
       };
 
       const updatedReserve = reserve - price;
@@ -233,13 +674,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.storage.local.set(
         {
           lumberReserve: updatedReserve,
-          purchasedItems
+          purchasedItems,
         },
         () => {
           sendResponse({
             success: true,
             lumberReserve: updatedReserve,
-            purchasedItems
+            purchasedItems,
           });
         }
       );
@@ -249,166 +690,426 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "contentReady") {
-    chrome.storage.session.get(["bibinDone", "bibinShown"], (result) => {
-      if (result.bibinDone || result.bibinShown) return;
-      chrome.storage.session.set({ bibinShown: true });
-      chrome.tabs.sendMessage(sender.tab.id, { action: "showBibin" }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.log("contentReady send failed:", chrome.runtime.lastError.message);
-          chrome.storage.session.set({ bibinShown: false });
-        }
-      });
-    });
-  }
-  if (message.action === "sessionExpired") {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (!tabs[0] || !tabs[0].id) return;
-    const url = tabs[0].url || "";
-    if (
-      url.startsWith("chrome://") ||
-      url.startsWith("chrome-extension://") ||
-      url.startsWith("about:") ||
-      url === ""
-    ) {
-      console.log("Cannot show session expired on this page:", url);
-      return;
+    if (!sender.tab?.id) {
+      logDebug("content_ready_missing_tab", {});
+      return true;
     }
-    chrome.tabs.sendMessage(tabs[0].id, { action: "showBibin" }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.log("Could not send sessionExpired:", chrome.runtime.lastError.message);
-      }
+
+    logDebug("content_ready", {
+      tabId: sender.tab.id,
+      url: sender.tab.url || "",
     });
-  });
-}
+
+    requestShowBibin(sender.tab.id, "contentReady");
+    return true;
+  }
+
+  if (message.action === "contentDebugLog") {
+    logDebug(message.event || "content_log", {
+      fromTabId: sender.tab?.id,
+      url: sender.tab?.url || "",
+      ...(message.details || {}),
+    });
+    return true;
+  }
+
+  if (message.action === "bibinChat") {
+    (async () => {
+      try {
+        const response = await fetch(`${API}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: message.message || "",
+            history: Array.isArray(message.history) ? message.history : [],
+          }),
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          logDebug("chat_http_error", {
+            status: response.status,
+            body: text,
+          });
+          sendResponse({ ok: false, error: `HTTP ${response.status}` });
+          return;
+        }
+
+        const data = await response.json();
+        if (data?.error) {
+          logDebug("chat_backend_error", { error: data.error });
+        }
+
+        sendResponse({
+          ok: true,
+          reply: data?.reply || "",
+          error: data?.error || null,
+        });
+      } catch (err) {
+        logDebug("chat_request_failed", { error: String(err) });
+        sendResponse({ ok: false, error: String(err) });
+      }
+    })();
+
+    return true;
+  }
+
+  if (message.action === "resetSessionApi") {
+    (async () => {
+      try {
+        const response = await fetch(`${API}/reset_session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          logDebug("reset_session_http_error", {
+            status: response.status,
+            body: text,
+          });
+          sendResponse({ ok: false, error: `HTTP ${response.status}` });
+          return;
+        }
+
+        sendResponse({ ok: true });
+      } catch (err) {
+        logDebug("reset_session_failed", { error: String(err) });
+        sendResponse({ ok: false, error: String(err) });
+      }
+    })();
+
+    return true;
+  }
+
+  if (message.action === "sessionExpired") {
+    tryShowOnActiveTab("sessionExpired", { force: true });
+    return true;
+  }
 
   if (message.action === "summonBibin") {
-    chrome.storage.session.set({ bibinDone: false, bibinShown: true });
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0] || !tabs[0].id) return;
-      const url = tabs[0].url || "";
-      if (
-        url.startsWith("chrome://") ||
-        url.startsWith("chrome-extension://") ||
-        url.startsWith("about:") ||
-        url === ""
-      ) {
-        console.log("Cannot summon on this page:", url);
-        return;
+    chrome.storage.session.set(
+      {
+        bibinDone: false,
+        bibinShown: false,
+        startupIntroPending: false,
+      },
+      () => {
+        logDebug("summon_requested", {});
+        tryShowOnActiveTab("summonBibin", { force: true });
+        sendResponse({ ok: true });
       }
-      chrome.tabs.sendMessage(tabs[0].id, { action: "showBibin" }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.log("Could not summon Bibin:", chrome.runtime.lastError.message);
-        }
-      });
-    });
+    );
+    return true;
   }
 
   if (message.action === "bibinDone") {
-    chrome.storage.session.set({ bibinDone: true, bibinShown: false });
+    chrome.storage.session.set({ bibinDone: true, bibinShown: false, startupIntroPending: false });
+    logDebug("bibin_done_for_session", {});
+    return true;
   }
+
+  if (message.action === "bibinDeclined") {
+    chrome.storage.session.set({ bibinDone: true, bibinShown: false, startupIntroPending: false });
+    chrome.storage.local.set({ lastBibinDecision: "declined", lastBibinDecisionAt: Date.now() });
+    logDebug("bibin_declined_for_session", {});
+    return true;
+  }
+
   if (message.action === "forceEndSession") {
-  chrome.storage.local.get("studyActive", (result) => {
-    if (result.studyActive) {
-      chrome.storage.local.set({ studyActive: false });
-      // onChanged will fire endAndLogSession automatically
-    } else {
-      // Already inactive — just clean up
-      endAndLogSession();
-    }
-  });
-  sendResponse({ status: "ok" });
-}
+    chrome.storage.local.get("studyActive", (result) => {
+      if (result.studyActive) {
+        chrome.storage.local.set({ studyActive: false });
+      } else {
+        endAndLogSession();
+      }
+
+      getActiveTab((tab) => {
+        if (tab?.id) {
+          sendClearIntervention(tab.id, "session_force_ended");
+        }
+      });
+    });
+
+    sendResponse({ status: "ok" });
+    return true;
+  }
 
   if (message.action === "checkRelevance") {
-    const { title, url, content } = message.data;
+    const { title, url, content, reason } = message.data || {};
     const senderTabId = sender.tab?.id;
 
     chrome.storage.local.get(["studySubject", "studyActive"], async (result) => {
       const topic = result.studySubject;
       if (!topic || !result.studyActive) {
-        console.log("Skipping relevance check — no active session");
+        logDebug("relevance_skipped_session_inactive", {
+          topic: topic || "",
+          studyActive: Boolean(result.studyActive),
+          url: url || "",
+          reason: reason || "",
+        });
+
+        if (senderTabId) {
+          sendClearIntervention(senderTabId, "study_inactive");
+        }
         return;
       }
 
-      // Track total pages seen this session
       chrome.storage.local.get("sessionTotalPages", (r) => {
         chrome.storage.local.set({ sessionTotalPages: (r.sessionTotalPages || 0) + 1 });
       });
 
       try {
-        const response = await fetch("http://127.0.0.1:8000/check_relevance", {
+        const response = await fetch(`${API}/check_relevance`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic, title, content, url })
+          body: JSON.stringify({ topic, title, content, url }),
         });
 
         if (!response.ok) {
           const text = await response.text();
-          console.error("Relevance check HTTP error:", response.status, text);
+          logDebug("relevance_http_error", {
+            status: response.status,
+            body: text,
+            url,
+          });
           return;
         }
 
         const data = await response.json();
-        console.log("Relevance result:", data);
 
         let analysis = data.llm_analysis;
         if (typeof analysis === "string") {
-          try { analysis = JSON.parse(analysis); }
-          catch (e) { console.log("Failed to parse llm_analysis:", e); return; }
+          try {
+            analysis = JSON.parse(analysis);
+          } catch (e) {
+            logDebug("relevance_analysis_parse_failed", {
+              error: String(e),
+              llmAnalysisType: typeof data.llm_analysis,
+            });
+            return;
+          }
         }
 
-        console.log("drift_detected:", data.drift_detected, "| relevant:", analysis?.relevant);
+        logDebug("relevance_result", {
+          relevant: data.relevant,
+          reason: data.reason || "",
+          pageTitle: title || "",
+          url: url || "",
+        });
 
-        // Track relevant pages — use top-level data.relevant (always set by backend)
-        // analysis?.relevant is null when similarity is high (LLM skipped), so never counted before
         if (data.relevant === true) {
           chrome.storage.local.get("sessionRelevantPages", (r) => {
             chrome.storage.local.set({ sessionRelevantPages: (r.sessionRelevantPages || 0) + 1 });
           });
+
+          if (senderTabId) {
+            sendClearIntervention(senderTabId, "page_relevant");
+          }
         }
 
-        // Store relevancy history
         chrome.storage.local.get(["relevancyHistory"], (histResult) => {
           let history = histResult.relevancyHistory || [];
-          history.push({ timestamp: Date.now(), title, url, result: { ...data, llm_analysis: analysis }, topic });
+          history.push({
+            timestamp: Date.now(),
+            title,
+            url,
+            result: { ...data, llm_analysis: analysis },
+            topic,
+          });
           if (history.length > 20) history = history.slice(-20);
           chrome.storage.local.set({ relevancyHistory: history });
         });
 
-        // Intervene only when LLM marks page as not relevant
         if (data.relevant === false) {
-          // Track intervention + distraction site
+          logDebug("intervention_pipeline_triggered", {
+            tabId: senderTabId,
+            topic,
+            pageTitle: title || "",
+          });
+
           chrome.storage.local.get(["sessionInterventions", "sessionDistractionSites"], (r) => {
             const sites = r.sessionDistractionSites || [];
             try {
               const hostname = new URL(url).hostname;
               if (!sites.includes(hostname)) sites.push(hostname);
-            } catch (_) {}
+            } catch (_) {
+              // noop
+            }
             chrome.storage.local.set({
               sessionInterventions: (r.sessionInterventions || 0) + 1,
-              sessionDistractionSites: sites
+              sessionDistractionSites: sites,
             });
           });
 
           if (!senderTabId) {
-            console.log("No sender tab ID, skipping intervene");
+            logDebug("intervene_skipped_missing_sender_tab", { url: url || "" });
             return;
           }
 
-          console.log("Sending bibinIntervene to tab:", senderTabId);
-          sendIntervene(senderTabId, {
-            reason: data.reason || "You're drifting from your study topic!",
-            topic
-          });
-        }
+          chrome.storage.local.get(
+            ["sessionInterventions", "sessionTotalPages", "sessionRelevantPages"],
+            async (sessionData) => {
+              logDebug("intervention_pipeline_context_loaded", {
+                tabId: senderTabId,
+                interventions: sessionData.sessionInterventions || 0,
+                totalPages: sessionData.sessionTotalPages || 0,
+                relevantPages: sessionData.sessionRelevantPages || 0,
+              });
 
+              const interventionData = {
+                reason: data.reason || "You're drifting from your study topic!",
+                topic,
+                pageTitle: title || "",
+                pageUrl: url || "",
+                llmReason: data.reason || "",
+                interventions: sessionData.sessionInterventions || 0,
+                totalPages: sessionData.sessionTotalPages || 0,
+                relevantPages: sessionData.sessionRelevantPages || 0,
+              };
+
+              const prompt = buildInterventionPrompt(interventionData);
+              logDebug("intervention_pipeline_prompt_ready", {
+                tabId: senderTabId,
+                promptLength: prompt.length,
+              });
+
+              const nudge = await requestInterventionNudge(prompt, {
+                tabId: senderTabId,
+                topic,
+              });
+
+              const finalNudge = nudge || buildInterventionFallback(interventionData);
+              logDebug("intervention_pipeline_nudge_ready", {
+                tabId: senderTabId,
+                source: nudge ? "backend" : "fallback",
+                nudgeLength: finalNudge.length,
+              });
+
+              sendIntervene(senderTabId, {
+                ...interventionData,
+                nudge: finalNudge,
+              });
+
+              logDebug("intervention_pipeline_dispatched", {
+                tabId: senderTabId,
+                topic,
+              });
+            }
+          );
+        }
       } catch (err) {
-        console.log("Relevance check failed:", err);
+        logDebug("relevance_request_failed", {
+          error: String(err),
+          url: url || "",
+        });
       }
     });
+
+    return true;
   }
 
-  return true;
+  if (message.action === "debugGetState") {
+    chrome.storage.local.get(
+      [
+        "studySubject",
+        "studyDuration",
+        "studyActive",
+        "studySessionActive",
+        "studySessionStartTime",
+        "sessionInterventions",
+        "sessionDistractionSites",
+        "sessionTotalPages",
+        "sessionRelevantPages",
+        "lastActiveTab",
+        "lastBibinDecision",
+        "lastBibinDecisionAt",
+        "relevancyHistory",
+      ],
+      (localData) => {
+        chrome.storage.session.get(
+          ["bibinDone", "bibinShown", "startupIntroPending", "startupIntroSource", "startupIntroAt"],
+          (sessionData) => {
+            getActiveTab((tab) => {
+              sendResponse({
+                ok: true,
+                now: Date.now(),
+                local: localData,
+                session: sessionData,
+                activeTab: tab
+                  ? {
+                      id: tab.id,
+                      title: tab.title || "",
+                      url: tab.url || "",
+                      status: tab.status || "",
+                    }
+                  : null,
+              });
+            });
+          }
+        );
+      }
+    );
+    return true;
+  }
+
+  if (message.action === "debugGetEvents") {
+    chrome.storage.local.get([DEBUG_EVENTS_KEY], (result) => {
+      sendResponse({
+        ok: true,
+        events: Array.isArray(result[DEBUG_EVENTS_KEY]) ? result[DEBUG_EVENTS_KEY] : [],
+      });
+    });
+    return true;
+  }
+
+  if (message.action === "debugClearEvents") {
+    chrome.storage.local.set({ [DEBUG_EVENTS_KEY]: [] }, () => {
+      logDebug("debug_events_cleared", {});
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message.action === "debugForceStartupIntro") {
+    armStartupIntro("debugForceStartupIntro");
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.action === "debugForceShowNow") {
+    tryShowOnActiveTab("debugForceShowNow", { force: true });
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.action === "debugTestIntervene") {
+    getActiveTab((tab) => {
+      if (!tab?.id || !isEligibleUrl(tab.url || "")) {
+        logDebug("debug_test_intervene_skipped", {
+          reason: "No eligible active tab",
+          url: tab?.url || "",
+        });
+        sendResponse({ ok: false, reason: "No eligible active tab" });
+        return;
+      }
+
+      sendIntervene(tab.id, {
+        topic: "Debug Topic",
+        reason: "Debug intervention test from debugger page.",
+      });
+
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  logDebug("runtime_message_unhandled", {
+    action,
+    fromTabId: sender?.tab?.id,
+    fromUrl: sender?.tab?.url || "",
+  });
+  return false;
 });
 
 // =====================
@@ -417,23 +1118,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 let studyTimer = null;
 
 function startSessionTimer(durationMins) {
-  clearSessionTimer(); // clear any existing timer
-  if (!durationMins || durationMins <= 0) return;
+  clearSessionTimer();
+  if (!durationMins || durationMins <= 0) {
+    logDebug("study_timer_skipped_invalid_duration", { durationMins });
+    return;
+  }
 
   const ms = durationMins * 60 * 1000;
-  console.log(`Session timer started: ${durationMins} mins`);
+  logDebug("study_timer_started", { durationMins });
 
   studyTimer = setTimeout(() => {
-    console.log("Session timer expired — ending session");
+    logDebug("study_timer_expired", {});
     chrome.storage.local.get("studyActive", (result) => {
       if (result.studyActive) {
-        // Notify the active tab
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) {
-            chrome.tabs.sendMessage(tabs[0].id, { action: "sessionExpired" });
-          }
-        });
-        // End the session
+        tryShowOnActiveTab("studyTimerExpired", { force: true });
         chrome.storage.local.set({ studyActive: false });
       }
     });
@@ -444,29 +1142,98 @@ function clearSessionTimer() {
   if (studyTimer) {
     clearTimeout(studyTimer);
     studyTimer = null;
+    logDebug("study_timer_cleared", {});
   }
 }
 
 // =====================
 // Retry-based intervene sender
-// Handles SPAs (like YouTube) where the content script is briefly
-// unavailable after in-page navigation — retries up to 3 times.
 // =====================
 function sendIntervene(tabId, data, attempt = 1) {
-  chrome.tabs.sendMessage(
+  logDebug("intervene_attempt", {
     tabId,
-    { action: "bibinIntervene", reason: data.reason, topic: data.topic },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        if (attempt < 3) {
-          console.log(`Intervene attempt ${attempt} failed — retrying in ${attempt}s...`);
-          setTimeout(() => sendIntervene(tabId, data, attempt + 1), 1000 * attempt);
-        } else {
-          console.log("Intervene failed after 3 attempts:", chrome.runtime.lastError.message);
-        }
-      } else {
-        console.log(`Intervene sent successfully ✅ (attempt ${attempt})`);
-      }
+    attempt,
+    topic: data.topic,
+  });
+
+  chrome.tabs.get(tabId, (tab) => {
+    const tabLookupError = chrome.runtime.lastError?.message;
+    if (tabLookupError || !tab) {
+      logDebug("intervene_failed_tab_lookup", {
+        tabId,
+        attempt,
+        error: tabLookupError || "Tab not found",
+      });
+      return;
     }
-  );
+
+    const url = tab.url || "";
+    if (!isEligibleUrl(url)) {
+      logDebug("intervene_skipped_ineligible_url", {
+        tabId,
+        attempt,
+        url,
+      });
+      return;
+    }
+
+    chrome.tabs.sendMessage(
+      tabId,
+      {
+        action: "bibinIntervene",
+        reason: data.reason,
+        nudge: data.nudge || "",
+        topic: data.topic,
+        pageTitle: data.pageTitle || "",
+        pageUrl: data.pageUrl || "",
+        llmReason: data.llmReason || "",
+      },
+      () => {
+        const errorMessage = chrome.runtime.lastError?.message;
+
+        if (!errorMessage) {
+          logDebug("intervene_sent", { tabId, attempt, url });
+          return;
+        }
+
+        if (isNoResponseExpectedError(errorMessage)) {
+          logDebug("intervene_sent_without_ack", { tabId, attempt, url });
+          return;
+        }
+
+        if (attempt < 3 && isReceiverMissingError(errorMessage)) {
+          logDebug("intervene_retry_scheduled", {
+            tabId,
+            attempt,
+            error: errorMessage,
+          });
+          setTimeout(() => sendIntervene(tabId, data, attempt + 1), 1000 * attempt);
+          return;
+        }
+
+        logDebug("intervene_failed", {
+          tabId,
+          attempt,
+          error: errorMessage,
+          url,
+        });
+      }
+    );
+  });
+}
+
+function sendClearIntervention(tabId, reason) {
+  chrome.tabs.sendMessage(tabId, { action: "bibinClearIntervention", reason }, () => {
+    const errorMessage = chrome.runtime.lastError?.message;
+    if (!errorMessage || isNoResponseExpectedError(errorMessage)) {
+      logDebug("clear_intervention_sent", { tabId, reason });
+      return;
+    }
+
+    logDebug("clear_intervention_failed", {
+      tabId,
+      reason,
+      error: errorMessage,
+    });
+  });
 }
