@@ -327,7 +327,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "bibinClearIntervention") {
-    clearInterventionMode(true);
+    // Ignore clear signals unless we are actively showing an intervention.
+    // This prevents startup/intro messages from being closed early.
+    if (petMode === "intervention") {
+      clearInterventionMode(true);
+    }
     handled = true;
   }
 
