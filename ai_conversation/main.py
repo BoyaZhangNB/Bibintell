@@ -254,3 +254,5 @@ async def get_session_history():
         return {"sessions": res.data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+# run with uvicorn ai_conversation.main:app --reload from root folder

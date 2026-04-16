@@ -18,10 +18,9 @@ const {
   playConversationAnimation,
 } = window.BibinPetAnimation;
 
-initializePetAnimation(img);
-
 pet.appendChild(img);
 document.body.appendChild(pet);
+initializePetAnimation(img);
 
 // speech bubble
 const speech = document.createElement("div");
@@ -76,6 +75,13 @@ document.addEventListener('mouseup', () => {
 // Session + intervention state
 let petMode = "idle";
 let interventionReminderTimer = null;
+let activeMessageStreamToken = 0;
+
+const MESSAGE_STREAM_TARGET_MS = 3000;
+const STREAM_MIN_DELAY_MS = 20;
+const STREAM_MAX_DELAY_MS = 120;
+const STREAM_PUNCTUATION_BONUS_MS = 55;
+const CONVERSATION_ANIMATION_DURATION_MS = 5000;
 
 function sendRuntimeMessage(payload) {
   return new Promise((resolve, reject) => {
@@ -117,6 +123,8 @@ function clearInterventionReminder() {
 }
 
 function clearInterventionMode(hideUi = true) {
+  // Invalidate any active typewriter effect before hiding or switching modes.
+  activeMessageStreamToken += 1;
   clearInterventionReminder();
   if (petMode === "intervention") {
     petMode = "idle";
@@ -127,23 +135,81 @@ function clearInterventionMode(hideUi = true) {
   }
 }
 
+function streamTextIntoNode(targetNode, fullText, token, onComplete) {
+  let index = 0;
+  const safeLength = Math.max(1, fullText.length);
+  const baseDelay = Math.min(
+    STREAM_MAX_DELAY_MS,
+    Math.max(STREAM_MIN_DELAY_MS, Math.round(MESSAGE_STREAM_TARGET_MS / safeLength))
+  );
+
+  const tick = () => {
+    if (token !== activeMessageStreamToken) {
+      return;
+    }
+
+    index += 1;
+    targetNode.textContent = fullText.slice(0, index);
+    positionBubble();
+
+    if (index >= fullText.length) {
+      if (typeof onComplete === "function") {
+        onComplete();
+      }
+      return;
+    }
+
+    const previousChar = fullText[index - 1] || "";
+    const delay = /[.!?,]/.test(previousChar)
+      ? baseDelay + STREAM_PUNCTUATION_BONUS_MS
+      : baseDelay;
+
+    setTimeout(tick, delay);
+  };
+
+  tick();
+}
+
 // Display a message with optional input field
-function displayMessage(text, showInput = true) {
-  playConversationAnimation();
+function displayMessage(text, showInput = true, options = {}) {
+  activeMessageStreamToken += 1;
+  const streamToken = activeMessageStreamToken;
+  const messageText = String(text || "");
+  const stream = options.stream !== false;
+
+  playConversationAnimation({
+    durationMs: CONVERSATION_ANIMATION_DURATION_MS,
+  });
 
   speech.innerHTML = "";
   const messageDiv = document.createElement("div");
-  messageDiv.textContent = text;
+  messageDiv.textContent = "";
   messageDiv.style.whiteSpace = "pre-wrap";
   speech.appendChild(messageDiv);
 
-  if (showInput) {
-    speech.appendChild(input);
-    input.focus();
-  }
-  // If no input, remove it so there's no typing space
   speech.style.display = "block";
   positionBubble();
+
+  const finishRender = () => {
+    if (streamToken !== activeMessageStreamToken) {
+      return;
+    }
+
+    if (showInput) {
+      speech.appendChild(input);
+      input.focus();
+    }
+
+    positionBubble();
+  };
+
+  if (!stream || messageText.length <= 1) {
+    messageDiv.textContent = messageText;
+    finishRender();
+    return;
+  }
+
+  streamTextIntoNode(messageDiv, messageText, streamToken, finishRender);
 }
 
 
@@ -215,7 +281,6 @@ input.addEventListener("keydown", async (e) => {
 
   const userMessage = input.value.trim();
   input.value = "";
-  playConversationAnimation();
 
   if (input._mode === "subject") {
     input._mode = "duration";

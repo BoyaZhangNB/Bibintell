@@ -1,7 +1,9 @@
 (() => {
+  const TALKING_VIDEO_URL = chrome.runtime.getURL("bibin_assets/animation/Conversation/Talking.webm");
+  const WAITING_VIDEO_URL = chrome.runtime.getURL("bibin_assets/animation/Conversation/waiting-Picsart-BackgroundRemover.webm");
+
   const ANIMATION_FRAME_GAPS_MS = {
     appearing: [700, 1300],
-    conversation: [500, 500, 500],
   };
 
   const PET_ANIMATIONS = {
@@ -14,27 +16,110 @@
       frameDurationsMs: ANIMATION_FRAME_GAPS_MS.appearing,
       durationMs: 4000,
     },
-    conversation: {
-      frameUrls: [
-        chrome.runtime.getURL("bibin_assets/animation/Conversation/1.png"),
-        chrome.runtime.getURL("bibin_assets/animation/Conversation/2.png"),
-        chrome.runtime.getURL("bibin_assets/animation/Conversation/3.png"),
-        chrome.runtime.getURL("bibin_assets/animation/Conversation/4.png"),
-      ],
-      frameDurationsMs: ANIMATION_FRAME_GAPS_MS.conversation,
-      durationMs: 4000,
-    },
   };
 
   const PET_IDLE_FRAME = chrome.runtime.getURL("bibin_assets/animation/Conversation/4.png");
 
   let currentAnimationToken = 0;
   let img = null;
+  let talkingVideo = null;
+  let waitingVideo = null;
+  let talkingTimeoutId = null;
 
   function initializePetAnimation(targetImg) {
     img = targetImg;
+    ensureVideos();
     setPetIdleFrame();
     preloadFrames();
+  }
+
+  function createVideoElement(url) {
+    const video = document.createElement("video");
+    video.src = url;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.style.display = "none";
+    video.style.width = img.style.width || "200px";
+    video.style.pointerEvents = "none";
+    return video;
+  }
+
+  function ensureVideos() {
+    if (!img || (talkingVideo && waitingVideo)) {
+      return;
+    }
+
+    const parent = img.parentElement;
+    if (!parent) {
+      return;
+    }
+
+    if (!talkingVideo) {
+      talkingVideo = createVideoElement(TALKING_VIDEO_URL);
+      parent.appendChild(talkingVideo);
+    }
+
+    if (!waitingVideo) {
+      waitingVideo = createVideoElement(WAITING_VIDEO_URL);
+      parent.appendChild(waitingVideo);
+    }
+  }
+
+  function clearTalkingTimer() {
+    if (!talkingTimeoutId) {
+      return;
+    }
+
+    clearTimeout(talkingTimeoutId);
+    talkingTimeoutId = null;
+  }
+
+  function stopVideo(videoEl, resetToStart = true) {
+    if (!videoEl) {
+      return;
+    }
+
+    videoEl.pause();
+    videoEl.style.display = "none";
+    if (resetToStart) {
+      try {
+        videoEl.currentTime = 0;
+      } catch (_) {
+        // Some browsers may reject currentTime changes before metadata is ready.
+      }
+    }
+  }
+
+  function hideAllVideos(resetToStart = true) {
+    stopVideo(talkingVideo, resetToStart);
+    stopVideo(waitingVideo, resetToStart);
+  }
+
+  function showWaitingLoop() {
+    ensureVideos();
+
+    if (!waitingVideo) {
+      img.style.display = "block";
+      img.src = PET_IDLE_FRAME;
+      return;
+    }
+
+    clearTalkingTimer();
+    stopVideo(talkingVideo, true);
+    stopVideo(waitingVideo, false);
+
+    img.style.display = "none";
+    waitingVideo.style.display = "block";
+
+    const playResult = waitingVideo.play();
+    if (playResult && typeof playResult.catch === "function") {
+      playResult.catch(() => {
+        img.style.display = "block";
+        img.src = PET_IDLE_FRAME;
+      });
+    }
   }
 
   function preloadFrames() {
@@ -47,6 +132,9 @@
 
     const idle = new Image();
     idle.src = PET_IDLE_FRAME;
+
+    if (talkingVideo) talkingVideo.load();
+    if (waitingVideo) waitingVideo.load();
   }
 
   function easeInOutQuad(t) {
@@ -57,7 +145,9 @@
     if (!img) {
       return;
     }
-    img.src = PET_IDLE_FRAME;
+
+    // Idle state is a looping waiting video. PNG remains as a safe fallback.
+    showWaitingLoop();
   }
 
   function normalizeFrameDurations(frameDurationsMs, frameCount) {
@@ -78,6 +168,30 @@
     if (!img) {
       return;
     }
+
+    ensureVideos();
+
+    if (animationName === "appearing") {
+      playFrameAnimation(animationName, options);
+      return;
+    }
+
+    if (animationName === "conversation") {
+      playTalkingVideo(options);
+      return;
+    }
+
+    showWaitingLoop();
+  }
+
+  function playFrameAnimation(animationName, options = {}) {
+    if (!img) {
+      return;
+    }
+
+    clearTalkingTimer();
+    hideAllVideos();
+    img.style.display = "block";
 
     const animation = PET_ANIMATIONS[animationName];
     if (!animation || animation.frameUrls.length === 0) {
@@ -145,6 +259,48 @@
     };
 
     requestAnimationFrame(render);
+  }
+
+  function playTalkingVideo(options = {}) {
+    if (!img) {
+      return;
+    }
+
+    ensureVideos();
+    if (!talkingVideo) {
+      showWaitingLoop();
+      return;
+    }
+
+    const token = ++currentAnimationToken;
+    const { onComplete } = options;
+    const hasTimedFinish = Number.isFinite(options.durationMs) && options.durationMs > 0;
+    const durationMs = hasTimedFinish ? Math.max(options.durationMs, 250) : 0;
+
+    clearTalkingTimer();
+    stopVideo(waitingVideo, false);
+    stopVideo(talkingVideo, false);
+    img.style.display = "none";
+    talkingVideo.style.display = "block";
+
+    const playResult = talkingVideo.play();
+    if (playResult && typeof playResult.catch === "function") {
+      playResult.catch(() => {
+        showWaitingLoop();
+      });
+    }
+
+    if (!hasTimedFinish || typeof onComplete !== "function") {
+      return;
+    }
+
+    talkingTimeoutId = setTimeout(() => {
+      if (token !== currentAnimationToken) {
+        return;
+      }
+
+      onComplete();
+    }, durationMs);
   }
 
   function playConversationAnimation(options = {}) {
