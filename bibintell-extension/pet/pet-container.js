@@ -300,7 +300,7 @@ input.addEventListener("keydown", async (e) => {
 
     // No input needed on final message
     displayMessage(`Perfect! I'll let you focus now. Good luck! 🎯`, false);
-    setTimeout(() => hideBibin(), 2500);
+    setTimeout(() => hideBibin(), 5000);
     return;
   }
 });
