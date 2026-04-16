@@ -4,6 +4,7 @@ const INTERVENTION_REPEAT_MS = 10000;
 
 const DEBUG_EVENTS_KEY = "debugEvents";
 const MAX_DEBUG_EVENTS = 200;
+// Per-tab intervention state so each distracting tab can escalate independently.
 const interventionLoops = new Map();
 
 function logDebug(event, details = {}) {
@@ -244,11 +245,13 @@ async function dispatchInterventionTick(tabId) {
       });
     });
 
+    // Stop immediately if the tab is gone or cannot host the content script.
     if (!tab || !isEligibleUrl(tab.url || "")) {
       stopInterventionLoop(tabId, "tab_missing_or_ineligible");
       return;
     }
 
+    // If user navigated away from the flagged page, clear UI and end this loop.
     if (state.pageUrl && tab.url !== state.pageUrl) {
       stopInterventionLoop(tabId, "url_changed");
       sendClearIntervention(tabId, "url_changed");
@@ -287,6 +290,7 @@ async function dispatchInterventionTick(tabId) {
       reminderCount: state.reminderCount,
     };
 
+    // Build a metric-aware prompt so the model can escalate tone over time.
     const prompt = buildInterventionPrompt(interventionData);
     logDebug("intervention_pipeline_prompt_ready", {
       tabId,
@@ -307,6 +311,7 @@ async function dispatchInterventionTick(tabId) {
       reminderCount: state.reminderCount,
     });
 
+    // UI only renders this payload; backend generation already happened above.
     sendIntervene(tabId, {
       ...interventionData,
       nudge: finalNudge,
@@ -332,6 +337,7 @@ function startInterventionLoop(tabId, interventionBase) {
   const existing = interventionLoops.get(tabId);
   const existingSamePage = existing && existing.pageUrl === (interventionBase.pageUrl || "");
 
+  // Avoid stacking multiple timers for the same tab and URL.
   if (existingSamePage) {
     logDebug("intervention_loop_already_active", {
       tabId,
@@ -356,6 +362,7 @@ function startInterventionLoop(tabId, interventionBase) {
     repeatMs: INTERVENTION_REPEAT_MS,
   });
 
+  // First nudge is immediate; follow-up nudges run on interval.
   dispatchInterventionTick(tabId);
 
   const state = interventionLoops.get(tabId);
@@ -840,6 +847,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Main decision pipeline entrypoint from content.js page snapshots.
   if (message.action === "checkRelevance") {
     const { title, url, content, reason } = message.data || {};
     const senderTabId = sender.tab?.id;
@@ -926,6 +934,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           chrome.storage.local.set({ relevancyHistory: history });
         });
 
+        // For off-task pages, begin per-tab repeating interventions.
         if (data.relevant === false) {
           logDebug("intervention_pipeline_triggered", {
             tabId: senderTabId,
@@ -1170,6 +1179,7 @@ function sendIntervene(tabId, data, attempt = 1) {
           return;
         }
 
+        // Retry when content script is still loading after navigation.
         if (attempt < 3 && isReceiverMissingError(errorMessage)) {
           logDebug("intervene_retry_scheduled", {
             tabId,

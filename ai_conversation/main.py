@@ -84,6 +84,7 @@ async def chat(body: ChatRequest):
 
 @app.post("/check_relevance")
 async def check_relevance(body: RelevanceRequest):
+    # Called by the service worker for each page snapshot while a study session is active.
     started = time.time()
     print(
         f"[CHECK] received topic={body.topic!r} title={body.title[:120]!r} content_len={len(body.content or '')}",
@@ -128,6 +129,7 @@ async def check_relevance(body: RelevanceRequest):
 
 @app.post("/nudge")
 async def nudge(body: NudgeRequest):
+    # Called by the service worker intervention loop (initial + every 10s while off-task).
     started = time.time()
     print("🦫 NUDGE ENDPOINT HIT", flush=True)
     prompt = body.prompt or ""
@@ -170,7 +172,7 @@ async def debug_status():
 
 @app.post("/log-session")
 async def log_session(data: SessionLog):
-    """Saves the completed Dam Session to Supabase."""
+    """Persist the final session summary used by popup/stats dashboards."""
     if supabase is None:
         return {"status": "error", "message": f"Supabase unavailable: {supabase_init_error or 'init failed'}"}
 
@@ -193,7 +195,7 @@ async def log_session(data: SessionLog):
 
 @app.get("/user-stats")
 async def get_user_stats():
-    """Streak, total study time, and top distraction site."""
+    """Aggregate headline metrics for the popup and stats hero cards."""
     if supabase is None:
         return {"streak": 0, "total_study_mins": 0, "top_distraction": "None", "total_interventions": 0}
 
@@ -237,7 +239,7 @@ async def get_user_stats():
 
 @app.get("/session-history")
 async def get_session_history():
-    """All past sessions for the stats history table."""
+    """Return all past sessions for the stats history table."""
     if supabase is None:
         return {"sessions": []}
 

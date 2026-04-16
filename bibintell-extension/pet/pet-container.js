@@ -1,4 +1,6 @@
 
+// UI layer only: renders Bibin and collects subject/duration.
+// Relevance checks and nudge generation are handled in background.js.
 // Create Pet (hidden by default)
 const pet = document.createElement("div");
 pet.id = "bibintell-pet";
@@ -103,6 +105,7 @@ function hideBibin() {
   clearInterventionReminder();
   speech.style.display = "none";
   pet.style.display = "none";
+  // Signals the service worker to avoid auto-showing again in this browser session.
   chrome.runtime.sendMessage({ action: "bibinDone" });
 }
 
@@ -182,6 +185,7 @@ function startFlow() {
 
   yesBtn.addEventListener("click", () => {
     input._mode = "subject";
+    // Best-effort backend reset for a clean session start.
     sendRuntimeMessage({ action: "resetSessionApi" }).catch((err) => {
       console.log("Reset failed:", err);
     });
@@ -226,7 +230,7 @@ input.addEventListener("keydown", async (e) => {
   if (input._mode === "duration") {
     input._mode = null;
 
-    // Save duration to storage
+    // Setting studyActive=true is the handoff that starts monitoring in background.js.
     chrome.storage.local.set({ studyDuration: userMessage, studyActive: true });
 
     // No input needed on final message
@@ -290,6 +294,7 @@ function intervene(interventionPayload) {
     pet.style.left = "";
     pet.style.top = "";
 
+    // Service worker sends a generated nudge. This fallback is only for transport/API failures.
     const fallback = `${topic} is waiting. You're on ${pageTitle}. ${reason}`;
     displayMessage(nudge || fallback, false);
   });

@@ -1,13 +1,13 @@
 # Core server
-fastapi
-uvicorn[standard]
-pydantic
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.8,<3.0
 
 # AI / LLM
-groq
+groq>=0.12,<1.0
 
 # Database
-supabase
+supabase>=2.7,<3.0
 
 # Utilities
-python-dotenv
+python-dotenv>=1.0,<2.0

@@ -17,6 +17,7 @@ def parse_llm_response(raw: str) -> dict:
         return json.loads(cleaned)
     except Exception as e:
         print(f"[ERROR] Failed to parse LLM JSON: {e}\nRaw: {raw}")
+        # Conservative fallback: avoid false-positive interventions when model output is malformed.
         return {"relevant": True, "reason": "Parse failed — defaulting to relevant."}
 
 
@@ -46,6 +47,7 @@ Return ONLY a valid JSON object — no extra text:
   "reason": "1-2 sentence justification."
 }}"""
 
+    # Strict prompt + low temperature keeps the response predictable JSON for the extension pipeline.
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
