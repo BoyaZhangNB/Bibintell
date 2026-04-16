@@ -29,38 +29,34 @@ This repo is intentionally built like a product prototype: observable, stateful,
 
 ```mermaid
 flowchart LR
-  subgraph Browser[Chrome]
-    CS[Content script
-scrape title/url/text]
-    UI[Pet UI
-pet-container.js]
-    SW[Service worker
-background.js]
-    CS -->|runtime msg: checkRelevance| SW
-    SW -->|tabs.sendMessage: bibinIntervene| UI
-    SW -->|tabs.sendMessage: bibinClearIntervention| UI
+  subgraph Browser["Chrome"]
+    CS["Content script<br/>scrape title/url/text"]
+    UI["Pet UI<br/>pet-container.js"]
+    SW["Service worker<br/>background.js"]
+
+    CS -->|"runtime msg: checkRelevance"| SW
+    SW -->|"tabs.sendMessage: bibinIntervene"| UI
+    SW -->|"tabs.sendMessage: bibinClearIntervention"| UI
   end
 
-  subgraph Backend[FastAPI @ 127.0.0.1:8000]
-    CR[/POST \/check_relevance/]
-    NU[/POST \/nudge/]
-    LS[/POST \/log-session/]
+  subgraph Backend["FastAPI (127.0.0.1:8000)"]
+    CR["POST /check_relevance"]
+    NU["POST /nudge"]
+    LS["POST /log-session"]
   end
 
-  subgraph LLM[Groq LLM API]
-    R[Relevance model
-llama-3.3-70b-versatile]
-    N[Nudge model
-llama-3.3-70b-versatile]
+  subgraph LLM["Groq LLM API"]
+    R["Relevance model<br/>llama-3.3-70b-versatile"]
+    N["Nudge model<br/>llama-3.3-70b-versatile"]
   end
 
-  subgraph DB[Supabase (optional)]
-    PG[(Postgres)]
+  subgraph DB["Supabase (optional)"]
+    PG["Postgres"]
   end
 
-  SW -->|POST /check_relevance| CR --> R
-  SW -->|POST /nudge| NU --> N
-  SW -->|POST /log-session| LS --> PG
+  SW --> CR --> R
+  SW --> NU --> N
+  SW --> LS --> PG
 ```
 
 ## How it works (actual runtime workflow)
