@@ -154,46 +154,45 @@ function buildInterventionPrompt(data) {
   const elapsedMins = Number.isInteger(data.elapsedMins) ? data.elapsedMins : 0;
   const reminderCount = Number.isInteger(data.reminderCount) ? data.reminderCount : 0;
   const focusPercent = totalPages > 0 ? Math.round((relevantPages / totalPages) * 100) : 0;
+
   const toneGuide = reminderCount === 0
-    ? "playful and witty with one light beaver pun"
+    ? "playful and surprised — like catching a friend red-handed, funny beaver pun required"
     : reminderCount <= 2
-      ? "firmer with less humor and clear accountability"
-      : "stern, direct, no fluff";
+    ? "disappointed but caring — less humor, more accountability, still one beaver reference"
+    : "stern and direct — no jokes, just facts, short and sharp";
 
-  return `You are Bibin, a strict but friendly productivity beaver.
+  const examplesByTone = reminderCount === 0
+    ? `Examples of the right tone:
+- "Dam, ${topic} already? You just opened this page ${elapsedMins} minutes in — back to the lodge."
+- "Whoa, a ${pageTitle} detour already? Your ${topic} notes are collecting dust, chew through it."
+- "Already drifting? Bibin sees everything. ${topic} isn't going to study itself, get back to it."`
+    : reminderCount <= 2
+    ? `Examples of the right tone:
+- "Still here? Your ${topic} focus is sitting at ${focusPercent}% and Bibin is not impressed — back to the dam."
+- "You've had ${interventions} nudges and you're still on ${pageTitle}? ${topic} is waiting and the dam won't build itself."
+- "Bibin believed in you. ${elapsedMins} minutes in and your focus is already leaking — patch it up and get back to ${topic}."
+- "This is reminder ${reminderCount + 1}. Every minute here is a minute your ${topic} knowledge stays shallow — swim back."`
+    : `Examples of the right tone:
+- "${interventions} interventions. Your ${topic} dam is still unfinished. Close this. Now."
+- "Bibin is done being nice. ${topic}. ${elapsedMins} minutes wasted. Get back."
+- "You have been warned ${interventions} times. ${topic} is the only page that matters right now."
+- "No more jokes. No more puns. ${topic}. Go."`;
 
-Generate one intervention line that escalates with repeated reminders.
+  return `Generate one intervention message for a student who is off-task.
 
 Study topic: ${topic}
 Current page title: ${pageTitle}
 Current page url: ${pageUrl}
-Reason: ${reason}
-Interventions so far: ${interventions}
-Elapsed study minutes: ${elapsedMins}
-Focus percent: ${focusPercent}
-Reminder count on this same page: ${reminderCount + 1}
+Reason off-task: ${reason}
+Interventions so far this session: ${interventions}
+Minutes elapsed: ${elapsedMins}
+Focus percent: ${focusPercent}%
+Reminder count on this page: ${reminderCount + 1}
 Tone target: ${toneGuide}
 
-Rules:
-- Plain text only
-- One sentence
-- Max 24 words
-- Include study topic by name
-- Mention one concrete session metric (focus percent, interventions, or elapsed minutes)
-- Never be insulting`;
-}
+${examplesByTone}
 
-function buildInterventionFallback(data) {
-  const topic = data.topic || "your study topic";
-  const pageTitle = data.pageTitle || "this page";
-  const reminderCount = Number.isInteger(data.reminderCount) ? data.reminderCount : 0;
-  if (reminderCount === 0) {
-    return `${topic} needs you, not this page. Beaver believe in yourself and get back to studying.`;
-  }
-  if (reminderCount <= 2) {
-    return `Still off-track from ${topic}. You've had ${data.interventions || 0} nudges; return to focused work now.`;
-  }
-  return `Enough detours. Leave ${pageTitle} and resume ${topic} immediately.`;
+Now write ONE intervention message in that exact tone. Two sentences max 40 words. Plain text only. No quotes around it.`;
 }
 
 function getLocalAsync(keys) {
@@ -295,6 +294,9 @@ async function dispatchInterventionTick(tabId) {
     logDebug("intervention_pipeline_prompt_ready", {
       tabId,
       promptLength: prompt.length,
+      pageTitle: interventionData.pageTitle || "",
+      pageUrl: interventionData.pageUrl || "",
+      promptPreview: prompt.slice(0, 220),
       reminderCount: state.reminderCount,
     });
 
