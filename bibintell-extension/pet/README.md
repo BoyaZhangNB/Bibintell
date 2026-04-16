@@ -1,116 +1,89 @@
-# Pet Speech and Conversation Logic
+# Pet UI logic (pet-container.js)
 
-This document summarizes how speech is displayed and generated in `pet-container.js`, and where user input is stored.
+This document explains what the on-page “Bibin” UI does, what it does not do, and how it interacts with the service worker.
 
-## 1) Main UI Elements
+## Responsibilities
 
-- `pet`: the floating character container (`#bibintell-pet`), initially hidden.
-- `speech`: the speech bubble container (`#bibin-speech`), initially hidden.
-- `input`: text input used for user replies.
+The pet UI is intentionally thin. It is responsible for:
 
-## 2) How Speech Is Displayed
+- Rendering the floating pet (`#bibintell-pet`) and speech bubble (`#bibin-speech`)
+- Running the session-start flow (subject + duration)
+- Writing session inputs to extension storage
+- Displaying intervention nudges that are generated elsewhere
 
-All speech bubble text is rendered through:
+The pet UI is *not* responsible for:
+
+- Calling `/check_relevance`
+- Calling `/nudge`
+- Performing any AI reasoning
+
+Those responsibilities live in the MV3 service worker (`background/background.js`).
+
+## Main UI elements
+
+- `pet`: floating character container (`#bibintell-pet`), hidden by default
+- `speech`: speech bubble (`#bibin-speech`), hidden by default
+- `input`: a text input used during the “subject” and “duration” steps
+
+## How speech is rendered
+
+All bubble content is rendered via:
 
 - `displayMessage(text, showInput = true)`
 
-What it does:
+It:
 
-- Plays conversation animation.
-- Replaces speech bubble content with `text`.
-- Optionally appends the input box.
-- Shows and repositions the bubble.
+- plays the conversation animation
+- replaces the bubble contents with `text`
+- optionally appends the input field
+- shows and positions the bubble relative to the pet
 
-## 3) Two Speech Sources
+## Session-start flow (subject + duration)
 
-### A. Hardcoded/scripted lines (local strings)
+Entry point:
 
-These are fixed strings directly in `pet-container.js`, such as:
+- `startFlow()` (triggered when the service worker sends `action: "showBibin"`)
 
-- Initial prompt in `startFlow()`.
-- Subject and duration prompts after button/input steps.
-- Fallback messages when errors occur.
+Flow:
 
-### B. AI-generated lines (backend response)
+1. User clicks “Yes!”
+   - sets `input._mode = "subject"`
+   - asks the backend to reset any server-side session state via `action: "resetSessionApi"` (best-effort)
+2. User enters subject
+   - `chrome.storage.local.set({ studySubject: <text> })`
+   - switches to duration mode
+3. User enters duration
+   - `chrome.storage.local.set({ studyDuration: <text>, studyActive: true })`
+   - hides the UI shortly after
 
-The file sends requests to the local backend endpoint:
+The service worker watches `studyActive` and starts session timers + monitoring.
 
-- `POST http://127.0.0.1:8000/chat`
+## Intervention rendering
 
-Used in:
+When the service worker determines a page is off-task, it sends a message to the tab:
 
-- `showSpeech(userMessage)`
-- `showSpeechWithContext(prompt)`
+- `action: "bibinIntervene"`
 
-The reply is read from `data.reply` and shown via `displayMessage(...)`.
+Payload includes:
 
-## 4) Conversation State Flow
+- `topic`
+- `reason`
+- `pageTitle`, `pageUrl`
+- `nudge` (one sentence)
 
-In-memory conversation history is stored in:
+The UI handler calls `intervene(interventionPayload)` which:
 
-- `let conversation = []`
+- shows the pet
+- displays `nudge` (or a local fallback if `nudge` is missing)
+- does not request additional AI content
 
-Flow details:
+To clear the UI, the service worker sends:
 
-- Reset to empty in `startFlow()`.
-- User entries are pushed in the input handler (subject/duration modes):
-  - `{ role: "user", content: userMessage }`
-- AI entries are pushed in `showSpeech(...)`:
-  - `{ role: "bibin", content: reply }`
-- The conversation array is sent to `/chat` as `history`.
+- `action: "bibinClearIntervention"`
 
-Note: `conversation` is not persisted to extension storage; it only lives in memory for the current interaction.
-
-## 5) Input Modes and Interaction Steps
-
-`input._mode` controls stage transitions:
-
-- `"subject"` -> expects study subject.
-- `"duration"` -> expects study duration.
-- `"intervention"` -> set after contextual intervention message.
-
-Primary flow:
-
-1. `startFlow()` shows pet + Yes/No buttons.
-2. Yes:
-   - sets mode to `subject`
-   - calls `/reset_session`
-   - asks for subject
-3. Subject entered:
-   - stores subject
-   - moves mode to `duration`
-   - asks for duration
-4. Duration entered:
-   - stores duration
-   - shows final message
-   - hides pet shortly after
-
-## 6) Where User Input Is Stored
-
-User input is stored in Chrome local extension storage:
-
-- Subject:
-  - `chrome.storage.local.set({ studySubject: userMessage })`
-- Duration:
-  - `chrome.storage.local.set({ studyDuration: userMessage })`
-
-Storage location summary:
-
-- Persistent (extension local storage): `studySubject`, `studyDuration`
-- Temporary (in-memory JS variable): `conversation`
-
-## 7) Intervention Flow
-
-When `bibinIntervene` is received:
-
-- `intervene(topic, reason)` shows the pet if currently hidden.
-- Sends a custom contextual prompt to `/chat` via `showSpeechWithContext(...)`.
-- Displays AI-generated nudge.
-- Sets `input._mode = "intervention"` for follow-up user response handling.
-
-## 8) Hide/Done Behavior
+## Hide/Done behavior
 
 `hideBibin()`:
 
-- Hides speech and pet.
-- Sends runtime message `{ action: "bibinDone" }` to background script.
+- hides pet + bubble
+- sends `{ action: "bibinDone" }` to the service worker so it will not auto-show again in the same browser session
