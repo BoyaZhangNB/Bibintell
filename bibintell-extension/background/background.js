@@ -156,26 +156,26 @@ function buildInterventionPrompt(data) {
   const focusPercent = totalPages > 0 ? Math.round((relevantPages / totalPages) * 100) : 0;
 
   const toneGuide = reminderCount === 0
-    ? "playful and surprised — like catching a friend red-handed, funny beaver pun required"
+    ? "playful and surprised - like catching a friend red-handed, funny beaver pun required"
     : reminderCount <= 2
-    ? "disappointed but caring — less humor, more accountability, still one beaver reference"
-    : "stern and direct — no jokes, just facts, short and sharp";
+      ? "disappointed but caring - less humor, more accountability, still one beaver reference"
+      : "stern and direct - no jokes, just facts, short and sharp";
 
   const examplesByTone = reminderCount === 0
     ? `Examples of the right tone:
-- "Dam, ${topic} already? You just opened this page ${elapsedMins} minutes in — back to the lodge."
+- "Dam, ${pageTitle} already? You just opened this page ${elapsedMins} minutes in - back to the lodge to study ${topic}."
 - "Whoa, a ${pageTitle} detour already? Your ${topic} notes are collecting dust, chew through it."
-- "Already drifting? Bibin sees everything. ${topic} isn't going to study itself, get back to it."`
+- "Already drifting to ${pageTitle}? Bibin sees everything. ${topic} is not going to study itself, get back to it."`
     : reminderCount <= 2
-    ? `Examples of the right tone:
-- "Still here? Your ${topic} focus is sitting at ${focusPercent}% and Bibin is not impressed — back to the dam."
-- "You've had ${interventions} nudges and you're still on ${pageTitle}? ${topic} is waiting and the dam won't build itself."
-- "Bibin believed in you. ${elapsedMins} minutes in and your focus is already leaking — patch it up and get back to ${topic}."
-- "This is reminder ${reminderCount + 1}. Every minute here is a minute your ${topic} knowledge stays shallow — swim back."`
-    : `Examples of the right tone:
+      ? `Examples of the right tone:
+- "Still on ${pageTitle}? Your ${topic} focus is at ${focusPercent}% and Bibin is not impressed - back to the dam."
+- "You have had ${interventions} nudges and you are still on ${pageTitle}? ${topic} is waiting and the dam will not build itself."
+- "Bibin believed in you. ${elapsedMins} minutes in and your focus is already leaking - patch it up and get back to ${topic}."
+- "This is reminder ${reminderCount + 1}. Every minute here is a minute your ${topic} knowledge stays shallow - swim back."`
+      : `Examples of the right tone:
 - "${interventions} interventions. Your ${topic} dam is still unfinished. Close this. Now."
 - "Bibin is done being nice. ${topic}. ${elapsedMins} minutes wasted. Get back."
-- "You have been warned ${interventions} times. ${topic} is the only page that matters right now."
+- "You have been reminded ${interventions} times. ${topic} is the only page that matters right now."
 - "No more jokes. No more puns. ${topic}. Go."`;
 
   return `Generate one intervention message for a student who is off-task.
@@ -192,7 +192,16 @@ Tone target: ${toneGuide}
 
 ${examplesByTone}
 
-Now write ONE intervention message in that exact tone. Two sentences max 40 words. Plain text only. No quotes around it.`;
+Now write ONE intervention message in that exact tone.
+Rules:
+- Plain text only
+- Two sentences max
+- Include study topic by name
+- Include one metric (focus percent, minutes, or interventions)
+- Use page title or URL as a hook if possible
+- Never mention exact domain/site name
+- No insults
+- Sound like Bibin (beaver accountability coach), not a generic assistant`;
 }
 
 function getLocalAsync(keys) {
@@ -724,47 +733,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       url: sender.tab?.url || "",
       ...(message.details || {}),
     });
-    return true;
-  }
-
-  if (message.action === "bibinChat") {
-    (async () => {
-      try {
-        const response = await fetch(`${API}/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: message.message || "",
-            history: Array.isArray(message.history) ? message.history : [],
-          }),
-        });
-
-        if (!response.ok) {
-          const text = await response.text();
-          logDebug("chat_http_error", {
-            status: response.status,
-            body: text,
-          });
-          sendResponse({ ok: false, error: `HTTP ${response.status}` });
-          return;
-        }
-
-        const data = await response.json();
-        if (data?.error) {
-          logDebug("chat_backend_error", { error: data.error });
-        }
-
-        sendResponse({
-          ok: true,
-          reply: data?.reply || "",
-          error: data?.error || null,
-        });
-      } catch (err) {
-        logDebug("chat_request_failed", { error: String(err) });
-        sendResponse({ ok: false, error: String(err) });
-      }
-    })();
-
     return true;
   }
 
