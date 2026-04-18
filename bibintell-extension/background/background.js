@@ -176,72 +176,63 @@ function buildInterventionPrompt(data) {
   const relevantPages = Number.isInteger(data.relevantPages) ? data.relevantPages : 0;
   const elapsedMins = Number.isInteger(data.elapsedMins) ? data.elapsedMins : 0;
   const reminderCount = Number.isInteger(data.reminderCount) ? data.reminderCount : 0;
-  const focusPercent = totalPages > 0 ? Math.round((relevantPages / totalPages) * 100) : 0;
 
-  const toneGuide = reminderCount === 0
-    ? "playful and surprised — like catching a friend red-handed, funny beaver pun required"
-    : reminderCount <= 2
-    ? "disappointed but caring — less humor, more accountability, still one beaver reference"
-    : "stern and direct — no jokes, just facts, short and sharp";
+  // Only show focus % when we have enough data to make it meaningful
+  const hasFocusData = totalPages >= 2;
+  const focusPercent = hasFocusData ? Math.round((relevantPages / totalPages) * 100) : null;
+  const focusLine = hasFocusData
+    ? `Focus so far: ${focusPercent}% (${relevantPages} of ${totalPages} pages on-topic)`
+    : `Pages visited: ${totalPages} — not enough data for focus % yet`;
 
-  const examplesByTone = reminderCount === 0
-    ? `Examples of the right tone:
-<<<<<<< HEAD
-- "Dam, ${pageHook} already? You just opened this page ${elapsedMins} minutes in - back to the lodge to study ${topic}."
-- "Whoa, a ${pageHook} detour already? Your ${topic} notes are collecting dust, chew through it."
-- "Already drifting to ${pageHook}? Bibin sees everything. ${topic} is not going to study itself, get back to it."`
+  const tone = reminderCount === 0
+    ? "playful and caught-red-handed — one beaver pun, keep it light"
     : reminderCount <= 2
-      ? `Examples of the right tone:
-- "Still on ${pageHook}? Your ${topic} focus is at ${focusPercent}% and Bibin is not impressed - back to the dam."
-- "You have had ${interventions} nudges and you are still on ${pageHook}? ${topic} is waiting and the dam will not build itself."
-- "Bibin believed in you. ${elapsedMins} minutes in and your focus is already leaking - patch it up and get back to ${topic}."
-- "This is reminder ${reminderCount + 1}. Every minute here is a minute your ${topic} knowledge stays shallow - swim back."`
-      : `Examples of the right tone:
-=======
-- "Dam, ${topic} already? You just opened this page ${elapsedMins} minutes in — back to the lodge."
-- "Whoa, a ${pageTitle} detour already? Your ${topic} notes are collecting dust, chew through it."
-- "Already drifting? Bibin sees everything. ${topic} isn't going to study itself, get back to it."`
-    : reminderCount <= 2
-    ? `Examples of the right tone:
-- "Still here? Your ${topic} focus is sitting at ${focusPercent}% and Bibin is not impressed — back to the dam."
-- "You've had ${interventions} nudges and you're still on ${pageTitle}? ${topic} is waiting and the dam won't build itself."
-- "Bibin believed in you. ${elapsedMins} minutes in and your focus is already leaking — patch it up and get back to ${topic}."
-- "This is reminder ${reminderCount + 1}. Every minute here is a minute your ${topic} knowledge stays shallow — swim back."`
-    : `Examples of the right tone:
->>>>>>> parent of 4535c28 (changed the appearing model)
-- "${interventions} interventions. Your ${topic} dam is still unfinished. Close this. Now."
-- "Bibin is done being nice. ${topic}. ${elapsedMins} minutes wasted. Get back."
-- "You have been warned ${interventions} times. ${topic} is the only page that matters right now."
-- "No more jokes. No more puns. ${topic}. Go."`;
+    ? "disappointed but caring — less humor, more accountability"
+    : "stern and sharp — no jokes, just facts, keep it under 15 words total";
 
-  return `Generate one intervention message for a student who is off-task.
+  const examples = reminderCount === 0
+    ? [
+        `"Caught you on ${pageHook}! Your ${topic} dam won't build itself — chew through it."`,
+        `"Dam it, ${pageHook} already? You've got ${topic} to study and ${elapsedMins} minutes on the clock."`,
+        `"Bibin spotted you on ${pageHook}. ${topic} is waiting — back to the lodge."`,
+      ]
+    : reminderCount <= 2
+    ? [
+        `"Still on ${pageHook}? That's nudge ${interventions} — your ${topic} dam is leaking focus."`,
+        `"${elapsedMins} minutes in and you're on ${pageHook}. Bibin believed in you. Get back to ${topic}."`,
+        hasFocusData
+          ? `"${focusPercent}% focus and you're still on ${pageHook}? ${topic} needs you back now."`
+          : `"Back on ${pageHook} again? ${topic} is still waiting — don't make Bibin come back."`,
+      ]
+    : [
+        `"${interventions} nudges. ${topic}. Close ${pageHook}. Now."`,
+        `"No more puns. ${topic}. Go."`,
+        `"Bibin is done being nice. ${topic} only. Close ${pageHook}."`,
+      ];
+
+  return `Generate ONE intervention message for a student who drifted off-task.
 
 Study topic: ${topic}
-Page hook label: ${pageHook}
-Optional page title context: ${pageTitle}
-Reason off-task: ${reason}
-Interventions so far this session: ${interventions}
-Minutes elapsed: ${elapsedMins}
-Focus percent: ${focusPercent}%
-Reminder count on this page: ${reminderCount + 1}
-Tone target: ${toneGuide}
+Current page: ${pageHook} (${pageTitle})
+Why they're off-task: ${reason}
+Nudges this session: ${interventions}
+Elapsed minutes: ${elapsedMins}
+Reminder count on this specific page: ${reminderCount + 1}
+${focusLine}
 
-${examplesByTone}
+Tone: ${tone}
 
-<<<<<<< HEAD
-Now write ONE intervention message in that exact tone.
-Rules:
-- Plain text only
-- Two sentences max
-- Include study topic by name
-- Include one metric (focus percent, minutes, or interventions)
-- Use the page hook label and optionally page title as a hook
-- Do not include full URL links
-- No insults
-- Sound like Bibin (beaver accountability coach), not a generic assistant`;
-=======
-Now write ONE intervention message in that exact tone. Two sentences max 40 words. Plain text only. No quotes around it.`;
->>>>>>> parent of 4535c28 (changed the appearing model)
+Example messages in the right tone (do NOT copy — use as style reference only):
+${examples.map(e => `- ${e}`).join("\n")}
+
+Write ONE message now. Rules:
+- Plain text only, no quotes around the output
+- Max 2 sentences, prefer 1
+- Must name the study topic
+- Use ${pageHook} as the hook
+- ${hasFocusData ? "Include focus % or nudge count as the metric" : "Use elapsed minutes or nudge count as the metric — skip focus % entirely"}
+- Sound like Bibin (beaver accountability coach)
+- No insults, no full URLs`;
 }
 
 function buildInterventionFallback(data) {
@@ -900,19 +891,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "forceEndSession") {
     chrome.storage.local.get("studyActive", (result) => {
       if (result.studyActive) {
-        chrome.storage.local.set({ studyActive: false });
+        chrome.storage.local.set({ studyActive: false }, () => {
+          getActiveTab((tab) => {
+            if (tab?.id) {
+              sendClearIntervention(tab.id, "session_force_ended");
+            }
+            sendResponse({ status: "ok" });
+          });
+        });
       } else {
         endAndLogSession();
+        getActiveTab((tab) => {
+          if (tab?.id) {
+            sendClearIntervention(tab.id, "session_force_ended");
+          }
+          sendResponse({ status: "ok" });
+        });
       }
-
-      getActiveTab((tab) => {
-        if (tab?.id) {
-          sendClearIntervention(tab.id, "session_force_ended");
-        }
-      });
     });
-
-    sendResponse({ status: "ok" });
     return true;
   }
 

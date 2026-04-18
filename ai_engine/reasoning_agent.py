@@ -1,7 +1,7 @@
 from groq import Groq
 import json
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,6 +40,43 @@ EDUCATIONAL_DOMAINS = [
     "youtube.com",
 ]
 
+# Pages that are clearly navigation/launching pads.
+DISCOVERY_PATHS = {"", "/", "/search", "/results", "/discover", "/explore", "/feed", "/new", "/chat"}
+
+# Path patterns that indicate deep-content pages that require strict content judgment.
+CONTENT_PATH_PATTERNS = [
+    "/watch",
+    "/video",
+    "/shorts",
+    "/post",
+    "/article",
+    "/reel",
+    "/status",
+    "/p/",
+    "/r/",
+    "/comments",
+    "/c/",
+]
+
+# Query or hash hints that typically represent opening a specific piece of content.
+CONTENT_QUERY_KEYS = {
+    "v",
+    "video",
+    "video_id",
+    "post",
+    "post_id",
+    "article",
+    "article_id",
+    "story",
+    "story_id",
+    "reel",
+    "reel_id",
+    "short",
+    "short_id",
+}
+
+CONTENT_FRAGMENT_HINTS = {"watch", "video", "post", "article", "reel", "short", "thread"}
+
 
 def is_educational_domain(domain: str) -> bool:
     normalized = (domain or "").lower().strip()
@@ -59,33 +96,27 @@ def get_domain_from_url(url: str) -> str:
         return ""
 
 
-def is_homepage_url(url: str) -> bool:
-    try:
-        parsed = urlparse(url or "")
-        path = (parsed.path or "/").strip().lower()
-        return path in ["", "/"]
-    except Exception:
-        return False
-
-
 def is_limited_discovery_url(url: str) -> bool:
+    """True only for high-level navigation pages, never deep content pages."""
     try:
         parsed = urlparse(url or "")
         path = (parsed.path or "/").strip().lower()
+        query = parse_qs(parsed.query or "")
+        fragment = (parsed.fragment or "").strip().lower()
     except Exception:
         return False
 
-    # "Benefit of the doubt" applies only to high-level navigation/discovery pages.
-    discovery_paths = {
-        "",
-        "/",
-        "/search",
-        "/results",
-        "/discover",
-        "/explore",
-        "/feed",
-    }
-    return path in discovery_paths
+    for pattern in CONTENT_PATH_PATTERNS:
+        if path.startswith(pattern):
+            return False
+
+    if any(key in CONTENT_QUERY_KEYS for key in query.keys()):
+        return False
+
+    if fragment and any(hint in fragment for hint in CONTENT_FRAGMENT_HINTS):
+        return False
+
+    return path in DISCOVERY_PATHS
 
 
 def parse_llm_response(raw: str) -> dict:
@@ -136,15 +167,14 @@ def analyze_relevance(topic: str, title: str, content: str, metadata: dict | Non
     url = str(metadata.get("url") or "")
     domain = (metadata.get("domain") or get_domain_from_url(url)).lower()
     educational_domain_hit = is_educational_domain(domain)
-    homepage_hit = is_homepage_url(url)
     limited_discovery_hit = is_limited_discovery_url(url)
 
-    # Limited discovery pages on educational domains are allowed for study navigation.
-    if educational_domain_hit and limited_discovery_hit:
+    # Navigation/discovery pages are always allowed while users search for resources.
+    if limited_discovery_hit:
         return {
             "relevant": True,
-            "reason": "Educational discovery/navigation page is allowed so the user can find relevant study resources.",
-            "decision_path": "policy_educational_discovery_allowed",
+            "reason": "Navigation/discovery page is allowed so the user can find relevant study resources.",
+            "decision_path": "policy_discovery_navigation_allowed",
         }
 
     system = """You are an Academic Content Auditor.
@@ -153,46 +183,37 @@ Determine whether the current webpage is relevant to the user's study topic.
 
 Rules:
 - Primary objective: decide if current page usage is relevant to the stated study topic.
-- Treat domains in the educational domains list as potentially useful context only, not an automatic pass.
-- Also treat unknown domains as potentially educational if there is plausible academic intent.
-- Mark relevant when content is unclear but educational potential exists.
-- Mark irrelevant when current visible intent is clearly unrelated to the study topic.
-- Never mark a page relevant based only on platform reputation.
-- This rule applies to every site, including sites in the educational list.
-- Only limited discovery pages of an educational domain can be relevant by default for navigation.
-- For non-homepage pages, always judge by current URL/content intent.
-- For AI assistants (for example Gemini/ChatGPT/Claude), evaluate the apparent current query/topic, not just the platform name.
+- Judge deep-content pages strictly by current title/content vs study topic.
+- AI assistants are judged by current conversation intent, not platform name.
 - Return strict JSON only."""
 
     educational_domains_csv = ", ".join(EDUCATIONAL_DOMAINS)
 
     prompt = f"""Study Topic: {topic}
+Page Title: {title}
 Page Content (first 1000 chars):
 {content[:1000]}
 
 Metadata:
-- URL: {url}
+- Full URL: {url}
 - Domain: {domain}
-- Is Homepage URL: {homepage_hit}
-- Is Limited Discovery URL: {limited_discovery_hit}
+- Is navigation/discovery page: {limited_discovery_hit}
+- Is known educational domain: {educational_domain_hit}
 
 Educational Domains List:
 {educational_domains_csv}
 
-Educational Domain Match for this page: {educational_domain_hit}
-
 Decision guidance:
-1) If this page/domain may reasonably help study now or shortly, return relevant=true.
-2) If current content/request is clearly unrelated to the study topic, return relevant=false.
-3) Prefer caution: if ambiguous but educational potential exists, return relevant=true.
-4) If Educational Domain Match is true and Is Limited Discovery URL is true, return relevant=true.
-5) If Educational Domain Match is true but Is Limited Discovery URL is false and current intent is off-topic, return relevant=false.
-6) For non-listed domains, still mark relevant when there is clear educational intent.
+1. Navigation/discovery pages (homepages, search results) -> relevant=true, user is finding resources.
+2. Deep content pages (videos, articles, posts, threads) -> judge strictly by title and content vs study topic.
+3. AI assistants (ChatGPT, Claude, Gemini, etc.) -> judge by apparent conversation topic in content.
+4. If deep-content evidence is weak (generic title like "YouTube" and thin content), prefer relevant=false unless topic evidence exists.
+5. If content is clearly unrelated to "{topic}" -> relevant=false.
 
 Return ONLY a valid JSON object — no extra text:
 {{
   "relevant": boolean,
-  "reason": "1-2 sentence justification.",
+    "reason": "1-2 sentence justification referencing the page title or content.",
   "decision_path": "short snake_case label"
 }}"""
 

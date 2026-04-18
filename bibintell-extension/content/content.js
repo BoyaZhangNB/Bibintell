@@ -10,7 +10,12 @@ function debugEvent(event, details = {}) {
 
 chrome.runtime.sendMessage({ action: "contentReady" });
 
+const STABILITY_POLL_MS = 4000;
+const SAME_SNAPSHOT_COOLDOWN_MS = 2500;
+
 let lastSentUrl = "";
+let lastSentSnapshot = "";
+let lastSentAt = 0;
 let scrapeTimeout = null;
 
 function isSupportedUrl(url) {
@@ -27,6 +32,17 @@ function scheduleScrape(reason) {
   }, 300);
 }
 
+function buildSnapshotSignature(url, title, content) {
+  const normalizedTitle = String(title || "").trim().toLowerCase();
+  const normalizedContent = String(content || "")
+    .slice(0, 180)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  return `${url}|${normalizedTitle}|${normalizedContent}`;
+}
+
 function scrapeAndSend(reason) {
   const title = document.title || "";
   const url = window.location.href || "";
@@ -41,11 +57,15 @@ function scrapeAndSend(reason) {
     return;
   }
 
-  if (lastSentUrl === url && reason !== "manual") {
+  const content = document.body.innerText.slice(0, 1000);
+  const now = Date.now();
+  const snapshotSignature = buildSnapshotSignature(url, title, content);
+  const isSameSnapshot = snapshotSignature === lastSentSnapshot;
+  const isCooldownHit = now - lastSentAt < SAME_SNAPSHOT_COOLDOWN_MS;
+
+  if (reason !== "manual" && isSameSnapshot && isCooldownHit) {
     return;
   }
-
-  const content = document.body.innerText.slice(0, 1000);
 
   chrome.storage.local.get("studyActive", (result) => {
     if (!result.studyActive) {
@@ -54,6 +74,8 @@ function scrapeAndSend(reason) {
     }
 
     lastSentUrl = url;
+    lastSentSnapshot = snapshotSignature;
+    lastSentAt = now;
 
     chrome.runtime.sendMessage({
       action: "checkRelevance",
@@ -110,3 +132,17 @@ setInterval(() => {
     notifyRouteChange("url_poll_change");
   }
 }, 1500);
+
+setInterval(() => {
+  if (document.visibilityState !== "visible") {
+    return;
+  }
+
+  chrome.storage.local.get("studyActive", (result) => {
+    if (!result.studyActive) {
+      return;
+    }
+
+    notifyRouteChange("stability_poll");
+  });
+}, STABILITY_POLL_MS);

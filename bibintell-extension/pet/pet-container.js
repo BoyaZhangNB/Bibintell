@@ -16,6 +16,8 @@ const {
   setPetIdleFrame,
   playPetAnimation,
   playConversationAnimation,
+  cancelCurrentAnimation,
+  isAppearingAnimationPlaying,
 } = window.BibinPetAnimation;
 
 pet.appendChild(img);
@@ -109,6 +111,7 @@ function positionBubble() {
 function hideBibin() {
   petMode = "idle";
   clearInterventionReminder();
+  cancelCurrentAnimation({ goToWaiting: false });
   speech.style.display = "none";
   pet.style.display = "none";
   // Signals the service worker to avoid auto-showing again in this browser session.
@@ -126,13 +129,16 @@ function clearInterventionMode(hideUi = true) {
   // Invalidate any active typewriter effect before hiding or switching modes.
   activeMessageStreamToken += 1;
   clearInterventionReminder();
-  if (petMode === "intervention") {
-    petMode = "idle";
-  }
-  if (hideUi && pet.style.display === "block") {
-    speech.style.display = "none";
+  petMode = "idle";
+  cancelCurrentAnimation({ goToWaiting: true });
+  speech.style.display = "none";
+
+  if (hideUi) {
     pet.style.display = "none";
+    return;
   }
+
+  pet.style.display = "block";
 }
 
 function streamTextIntoNode(targetNode, fullText, token, onComplete) {
@@ -329,7 +335,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "bibinClearIntervention") {
     // Ignore clear signals unless we are actively showing an intervention.
     // This prevents startup/intro messages from being closed early.
-    if (petMode === "intervention") {
+    if (petMode === "intervention" || message.reason === "session_force_ended") {
       clearInterventionMode(true);
     }
     handled = true;
@@ -373,6 +379,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace !== "local") return;
 
   if (changes.studyActive && !changes.studyActive.newValue) {
-    clearInterventionMode(true);
+    const keepPetVisible = isAppearingAnimationPlaying();
+    clearInterventionMode(!keepPetVisible);
   }
 });
