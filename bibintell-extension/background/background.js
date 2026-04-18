@@ -143,10 +143,33 @@ function armStartupIntro(source) {
   );
 }
 
+function getSiteHeadingFromUrl(url) {
+  try {
+    const hostname = new URL(url || "").hostname.toLowerCase().replace(/^www\./, "");
+    const base = (hostname.split(".")[0] || "").trim();
+    if (!base) return "";
+    return base.charAt(0).toUpperCase() + base.slice(1);
+  } catch (_) {
+    return "";
+  }
+}
+
+function getPageHookLabel(pageTitle, pageUrl) {
+  const safeTitle = (pageTitle || "").trim();
+  const siteHeading = getSiteHeadingFromUrl(pageUrl);
+
+  if (siteHeading && safeTitle && !safeTitle.toLowerCase().includes(siteHeading.toLowerCase())) {
+    return `${siteHeading} (${safeTitle})`;
+  }
+
+  return siteHeading || safeTitle || "this page";
+}
+
 function buildInterventionPrompt(data) {
   const topic = data.topic || "Unknown topic";
   const pageTitle = data.pageTitle || "Unknown page";
   const pageUrl = data.pageUrl || "";
+  const pageHook = getPageHookLabel(pageTitle, pageUrl);
   const reason = data.llmReason || data.reason || "You seem off-task.";
   const interventions = Number.isInteger(data.interventions) ? data.interventions : 0;
   const totalPages = Number.isInteger(data.totalPages) ? data.totalPages : 0;
@@ -163,13 +186,13 @@ function buildInterventionPrompt(data) {
 
   const examplesByTone = reminderCount === 0
     ? `Examples of the right tone:
-- "Dam, ${pageTitle} already? You just opened this page ${elapsedMins} minutes in - back to the lodge to study ${topic}."
-- "Whoa, a ${pageTitle} detour already? Your ${topic} notes are collecting dust, chew through it."
-- "Already drifting to ${pageTitle}? Bibin sees everything. ${topic} is not going to study itself, get back to it."`
+- "Dam, ${pageHook} already? You just opened this page ${elapsedMins} minutes in - back to the lodge to study ${topic}."
+- "Whoa, a ${pageHook} detour already? Your ${topic} notes are collecting dust, chew through it."
+- "Already drifting to ${pageHook}? Bibin sees everything. ${topic} is not going to study itself, get back to it."`
     : reminderCount <= 2
       ? `Examples of the right tone:
-- "Still on ${pageTitle}? Your ${topic} focus is at ${focusPercent}% and Bibin is not impressed - back to the dam."
-- "You have had ${interventions} nudges and you are still on ${pageTitle}? ${topic} is waiting and the dam will not build itself."
+- "Still on ${pageHook}? Your ${topic} focus is at ${focusPercent}% and Bibin is not impressed - back to the dam."
+- "You have had ${interventions} nudges and you are still on ${pageHook}? ${topic} is waiting and the dam will not build itself."
 - "Bibin believed in you. ${elapsedMins} minutes in and your focus is already leaking - patch it up and get back to ${topic}."
 - "This is reminder ${reminderCount + 1}. Every minute here is a minute your ${topic} knowledge stays shallow - swim back."`
       : `Examples of the right tone:
@@ -181,8 +204,8 @@ function buildInterventionPrompt(data) {
   return `Generate one intervention message for a student who is off-task.
 
 Study topic: ${topic}
-Current page title: ${pageTitle}
-Current page url: ${pageUrl}
+Page hook label: ${pageHook}
+Optional page title context: ${pageTitle}
 Reason off-task: ${reason}
 Interventions so far this session: ${interventions}
 Minutes elapsed: ${elapsedMins}
@@ -198,10 +221,28 @@ Rules:
 - Two sentences max
 - Include study topic by name
 - Include one metric (focus percent, minutes, or interventions)
-- Use page title or URL as a hook if possible
-- Never mention exact domain/site name
+- Use the page hook label and optionally page title as a hook
+- Do not include full URL links
 - No insults
 - Sound like Bibin (beaver accountability coach), not a generic assistant`;
+}
+
+function buildInterventionFallback(data) {
+  const topic = data.topic || "your study topic";
+  const pageTitle = data.pageTitle || "this page";
+  const pageUrl = data.pageUrl || "";
+  const pageHook = getPageHookLabel(pageTitle, pageUrl);
+  const reminderCount = Number.isInteger(data.reminderCount) ? data.reminderCount : 0;
+
+  if (reminderCount === 0) {
+    return `Dam detour detected: ${pageHook}. Swim back to ${topic} and lock in.`;
+  }
+
+  if (reminderCount <= 2) {
+    return `Still off-track on ${pageHook}. Refocus on ${topic} now.`;
+  }
+
+  return `Final warning: close ${pageHook} and continue ${topic} immediately.`;
 }
 
 function getLocalAsync(keys) {
@@ -824,6 +865,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     chrome.storage.local.get(["studySubject", "studyActive"], async (result) => {
       const topic = result.studySubject;
+      const shouldCountPageVisit = reason !== "stability_poll";
       if (!topic || !result.studyActive) {
         logDebug("relevance_skipped_session_inactive", {
           topic: topic || "",
@@ -838,9 +880,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
-      chrome.storage.local.get("sessionTotalPages", (r) => {
-        chrome.storage.local.set({ sessionTotalPages: (r.sessionTotalPages || 0) + 1 });
-      });
+      if (shouldCountPageVisit) {
+        chrome.storage.local.get("sessionTotalPages", (r) => {
+          chrome.storage.local.set({ sessionTotalPages: (r.sessionTotalPages || 0) + 1 });
+        });
+      }
 
       try {
         const response = await fetch(`${API}/check_relevance`, {
@@ -879,12 +923,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           reason: data.reason || "",
           pageTitle: title || "",
           url: url || "",
+          decisionPath: data.decision_path || "",
         });
 
         if (data.relevant === true) {
-          chrome.storage.local.get("sessionRelevantPages", (r) => {
-            chrome.storage.local.set({ sessionRelevantPages: (r.sessionRelevantPages || 0) + 1 });
-          });
+          if (shouldCountPageVisit) {
+            chrome.storage.local.get("sessionRelevantPages", (r) => {
+              chrome.storage.local.set({ sessionRelevantPages: (r.sessionRelevantPages || 0) + 1 });
+            });
+          }
 
           if (senderTabId) {
             sendClearIntervention(senderTabId, "page_relevant");
@@ -945,6 +992,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
 
           startInterventionLoop(senderTabId, interventionData);
+          logDebug("intervention_started", {
+            tabId: senderTabId,
+            pageUrl: url || "",
+            topic,
+            decisionPath: data.decision_path || "",
+          });
         }
       } catch (err) {
         logDebug("relevance_request_failed", {
@@ -984,6 +1037,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 now: Date.now(),
                 local: localData,
                 session: sessionData,
+                interventionLoops: Array.from(interventionLoops.keys()),
                 activeTab: tab
                   ? {
                       id: tab.id,

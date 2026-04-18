@@ -65,12 +65,16 @@ async def check_relevance(body: RelevanceRequest):
         flush=True,
     )
     try:
-        result = analyze_relevance(body.topic, body.title, body.content)
+        result = analyze_relevance(body.topic, body.title, body.content, metadata={"url": body.url})
         relevant = result.get("relevant", True)
         reason = result.get("reason", "")
+        decision_path = result.get("decision_path", "")
 
         print(
-            f"[CHECK] result relevant={relevant} elapsed_ms={int((time.time() - started) * 1000)} reason={reason[:180]!r}",
+            (
+                f"[CHECK] result relevant={relevant} elapsed_ms={int((time.time() - started) * 1000)} "
+                f"decision_path={decision_path!r} reason={reason[:180]!r}"
+            ),
             flush=True,
         )
 
@@ -83,6 +87,7 @@ async def check_relevance(body: RelevanceRequest):
         return {
             "relevant": relevant,
             "reason": reason,
+            "decision_path": decision_path,
             "drift_detected": False,   # kept for extension compatibility, always False now
             "llm_analysis": result,
         }
@@ -95,6 +100,7 @@ async def check_relevance(body: RelevanceRequest):
         return {
             "relevant": True,
             "reason": "Error during analysis — defaulting to relevant.",
+            "decision_path": "error_fallback_relevant",
             "drift_detected": False,
             "llm_analysis": None,
             "error": str(e)
