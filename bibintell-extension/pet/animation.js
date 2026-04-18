@@ -1,16 +1,27 @@
 (() => {
-  const APPEARING_DURATION_MS = 5000;
-  const APPEARING_VIDEO_URL = chrome.runtime.getURL("bibin_assets/animation/Appearing/Appearing.webm");
   const TALKING_VIDEO_URL = chrome.runtime.getURL("bibin_assets/animation/Conversation/Talking.webm");
   const WAITING_VIDEO_URL = chrome.runtime.getURL("bibin_assets/animation/Conversation/waiting-Picsart-BackgroundRemover.webm");
 
-  const PET_ANIMATIONS = {};
+  const ANIMATION_FRAME_GAPS_MS = {
+    appearing: [700, 1300],
+  };
+
+  const PET_ANIMATIONS = {
+    appearing: {
+      frameUrls: [
+        chrome.runtime.getURL("bibin_assets/animation/Appearing/1.png"),
+        chrome.runtime.getURL("bibin_assets/animation/Appearing/2.png"),
+        chrome.runtime.getURL("bibin_assets/animation/Appearing/3.png"),
+      ],
+      frameDurationsMs: ANIMATION_FRAME_GAPS_MS.appearing,
+      durationMs: 4000,
+    },
+  };
 
   const PET_IDLE_FRAME = chrome.runtime.getURL("bibin_assets/animation/Conversation/4.png");
 
   let currentAnimationToken = 0;
   let img = null;
-  let appearingVideo = null;
   let talkingVideo = null;
   let waitingVideo = null;
   let talkingTimeoutId = null;
@@ -36,19 +47,13 @@
   }
 
   function ensureVideos() {
-    if (!img || (appearingVideo && talkingVideo && waitingVideo)) {
+    if (!img || (talkingVideo && waitingVideo)) {
       return;
     }
 
     const parent = img.parentElement;
     if (!parent) {
       return;
-    }
-
-    if (!appearingVideo) {
-      appearingVideo = createVideoElement(APPEARING_VIDEO_URL);
-      appearingVideo.loop = false;
-      parent.appendChild(appearingVideo);
     }
 
     if (!talkingVideo) {
@@ -88,7 +93,6 @@
   }
 
   function hideAllVideos(resetToStart = true) {
-    stopVideo(appearingVideo, resetToStart);
     stopVideo(talkingVideo, resetToStart);
     stopVideo(waitingVideo, resetToStart);
   }
@@ -103,7 +107,6 @@
     }
 
     clearTalkingTimer();
-    stopVideo(appearingVideo, true);
     stopVideo(talkingVideo, true);
     stopVideo(waitingVideo, false);
 
@@ -120,12 +123,22 @@
   }
 
   function preloadFrames() {
+    Object.values(PET_ANIMATIONS).forEach((animation) => {
+      animation.frameUrls.forEach((frameUrl) => {
+        const frame = new Image();
+        frame.src = frameUrl;
+      });
+    });
+
     const idle = new Image();
     idle.src = PET_IDLE_FRAME;
 
-    if (appearingVideo) appearingVideo.load();
     if (talkingVideo) talkingVideo.load();
     if (waitingVideo) waitingVideo.load();
+  }
+
+  function easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
   }
 
   function setPetIdleFrame() {
@@ -159,7 +172,7 @@
     ensureVideos();
 
     if (animationName === "appearing") {
-      playAppearingVideo(options);
+      playFrameAnimation(animationName, options);
       return;
     }
 
@@ -171,69 +184,81 @@
     showWaitingLoop();
   }
 
-  function playAppearingVideo(options = {}) {
+  function playFrameAnimation(animationName, options = {}) {
     if (!img) {
       return;
     }
 
-    ensureVideos();
-    const { onComplete } = options;
+    clearTalkingTimer();
+    hideAllVideos();
+    img.style.display = "block";
 
-    if (!appearingVideo) {
-      if (typeof onComplete === "function") {
-        onComplete();
-        return;
-      }
-      setPetIdleFrame();
+    const animation = PET_ANIMATIONS[animationName];
+    if (!animation || animation.frameUrls.length === 0) {
       return;
     }
 
+    const { onComplete } = options;
     const token = ++currentAnimationToken;
-    const durationMs = APPEARING_DURATION_MS;
+    const frameCount = animation.frameUrls.length;
+    const perFrameDurations = normalizeFrameDurations(
+      options.frameDurationsMs || animation.frameDurationsMs,
+      frameCount
+    );
+    const fallbackDurationMs = options.durationMs || animation.durationMs;
+    const durationMs = perFrameDurations
+      ? perFrameDurations.reduce((sum, duration) => sum + duration, 0)
+      : fallbackDurationMs;
+    const safeDurationMs = Math.max(durationMs, 1);
+    const cumulativeDurations = perFrameDurations
+      ? perFrameDurations.reduce((acc, duration) => {
+          const next = (acc.length > 0 ? acc[acc.length - 1] : 0) + duration;
+          acc.push(next);
+          return acc;
+        }, [])
+      : null;
+    const start = performance.now();
 
-    clearTalkingTimer();
-    stopVideo(waitingVideo, true);
-    stopVideo(talkingVideo, true);
-    stopVideo(appearingVideo, false);
-    img.style.display = "none";
-    appearingVideo.style.display = "block";
-    appearingVideo.loop = false;
-
-    const finish = () => {
+    const render = (now) => {
       if (token !== currentAnimationToken) {
         return;
       }
 
-      appearingVideo.removeEventListener("ended", onEnded);
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / safeDurationMs, 1);
+      let frameIndex = frameCount - 1;
+
+      if (cumulativeDurations) {
+        for (let i = 0; i < cumulativeDurations.length; i += 1) {
+          if (elapsed < cumulativeDurations[i]) {
+            frameIndex = i;
+            break;
+          }
+        }
+      } else {
+        const easedProgress = easeInOutQuad(progress);
+        frameIndex = Math.min(
+          Math.floor(easedProgress * frameCount),
+          frameCount - 1
+        );
+      }
+
+      img.src = animation.frameUrls[frameIndex];
+
+      if (progress < 1) {
+        requestAnimationFrame(render);
+        return;
+      }
+
       if (typeof onComplete === "function") {
         onComplete();
         return;
       }
+
       setPetIdleFrame();
     };
 
-    const onEnded = () => finish();
-    appearingVideo.addEventListener("ended", onEnded);
-
-    try {
-      appearingVideo.currentTime = 0;
-    } catch (_) {
-      // Some browsers may reject currentTime changes before metadata is ready.
-    }
-
-    const playResult = appearingVideo.play();
-    if (playResult && typeof playResult.catch === "function") {
-      playResult.catch(() => {
-        appearingVideo.removeEventListener("ended", onEnded);
-        if (typeof onComplete === "function") {
-          onComplete();
-          return;
-        }
-        setPetIdleFrame();
-      });
-    }
-
-    talkingTimeoutId = setTimeout(finish, durationMs);
+    requestAnimationFrame(render);
   }
 
   function playTalkingVideo(options = {}) {
@@ -253,7 +278,6 @@
     const durationMs = hasTimedFinish ? Math.max(options.durationMs, 250) : 0;
 
     clearTalkingTimer();
-    stopVideo(appearingVideo, true);
     stopVideo(waitingVideo, false);
     stopVideo(talkingVideo, false);
     img.style.display = "none";

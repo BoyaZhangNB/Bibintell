@@ -34,6 +34,10 @@ app.add_middleware(
 )
 
 # --- REQUEST MODELS ---
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[List[dict]] = None
+
 class RelevanceRequest(BaseModel):
     topic: str
     title: str
@@ -54,6 +58,28 @@ class SessionLog(BaseModel):
 
 
 # --- ENDPOINTS ---
+
+@app.post("/chat")
+async def chat(body: ChatRequest):
+    started = time.time()
+    print(
+        f"[CHAT] received message_len={len(body.message or '')} history_len={len(body.history or [])}",
+        flush=True,
+    )
+    try:
+        response = bibin.chat(body.message, body.history)
+        print(
+            f"[CHAT] success reply_len={len(response or '')} elapsed_ms={int((time.time() - started) * 1000)}",
+            flush=True,
+        )
+        return {"reply": response}
+    except Exception as e:
+        print(
+            f"[CHAT] error elapsed_ms={int((time.time() - started) * 1000)} error={e}",
+            flush=True,
+        )
+        import traceback; traceback.print_exc()
+        return {"reply": "Oops, I had a hiccup. Try again!", "error": str(e)}
 
 
 @app.post("/check_relevance")

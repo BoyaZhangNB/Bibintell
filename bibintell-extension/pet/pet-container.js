@@ -224,7 +224,7 @@ function startFlow() {
   pet.style.top = "";
 
   playPetAnimation("appearing", {
-    durationMs: 5000,
+    durationMs: 2000,
     onComplete: setPetIdleFrame,
   });
 
@@ -264,7 +264,7 @@ function startFlow() {
     displayMessage("Okay, good luck! Come back if you need me. 👋", false);
     chrome.runtime.sendMessage({ action: "bibinDeclined" });
     chrome.storage.local.set({ studyActive: false });
-    setTimeout(() => hideBibin(), 4000);
+    setTimeout(() => hideBibin(), 2000);
   });
 
   btnRow.appendChild(yesBtn);
