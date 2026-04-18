@@ -259,6 +259,49 @@ function getLocalAsync(keys) {
   });
 }
 
+function getFocusPageKey(url) {
+  try {
+    const parsed = new URL(url || "");
+    parsed.hash = "";
+    return `${parsed.hostname}${parsed.pathname}${parsed.search}`.toLowerCase();
+  } catch (_) {
+    return String(url || "unknown").trim().toLowerCase();
+  }
+}
+
+function updateSessionFocusMetrics(pageUrl, relevant, callback) {
+  const pageKey = getFocusPageKey(pageUrl);
+
+  chrome.storage.local.get(["sessionPageRelevance"], (result) => {
+    const currentMap =
+      result.sessionPageRelevance && typeof result.sessionPageRelevance === "object"
+        ? result.sessionPageRelevance
+        : {};
+
+    const updatedMap = {
+      ...currentMap,
+      [pageKey]: Boolean(relevant),
+    };
+
+    const relevanceStates = Object.values(updatedMap);
+    const sessionTotalPages = relevanceStates.length;
+    const sessionRelevantPages = relevanceStates.filter(Boolean).length;
+
+    chrome.storage.local.set(
+      {
+        sessionPageRelevance: updatedMap,
+        sessionTotalPages,
+        sessionRelevantPages,
+      },
+      () => {
+        if (typeof callback === "function") {
+          callback({ sessionTotalPages, sessionRelevantPages });
+        }
+      }
+    );
+  });
+}
+
 function bumpSessionInterventions() {
   chrome.storage.local.get(["sessionInterventions"], (result) => {
     const current = Number.isInteger(result.sessionInterventions) ? result.sessionInterventions : 0;
@@ -532,6 +575,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
         studySessionStartTime: Date.now(),
         sessionInterventions: 0,
         sessionDistractionSites: [],
+        sessionPageRelevance: {},
         sessionTotalPages: 0,
         sessionRelevantPages: 0,
       });
@@ -604,6 +648,7 @@ function endAndLogSession() {
         studySessionStartTime: null,
         sessionInterventions: 0,
         sessionDistractionSites: [],
+        sessionPageRelevance: {},
         sessionTotalPages: 0,
         sessionRelevantPages: 0,
       });
@@ -919,7 +964,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     chrome.storage.local.get(["studySubject", "studyActive"], async (result) => {
       const topic = result.studySubject;
-      const shouldCountPageVisit = reason !== "stability_poll";
       if (!topic || !result.studyActive) {
         logDebug("relevance_skipped_session_inactive", {
           topic: topic || "",
@@ -932,12 +976,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendClearIntervention(senderTabId, "study_inactive");
         }
         return;
-      }
-
-      if (shouldCountPageVisit) {
-        chrome.storage.local.get("sessionTotalPages", (r) => {
-          chrome.storage.local.set({ sessionTotalPages: (r.sessionTotalPages || 0) + 1 });
-        });
       }
 
       try {
@@ -978,15 +1016,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           pageTitle: title || "",
           url: url || "",
           decisionPath: data.decision_path || "",
+          sourceReason: reason || "",
         });
 
-        if (data.relevant === true) {
-          if (shouldCountPageVisit) {
-            chrome.storage.local.get("sessionRelevantPages", (r) => {
-              chrome.storage.local.set({ sessionRelevantPages: (r.sessionRelevantPages || 0) + 1 });
-            });
-          }
+        updateSessionFocusMetrics(url, data.relevant === true);
 
+        if (data.relevant === true) {
           if (senderTabId) {
             sendClearIntervention(senderTabId, "page_relevant");
           }

@@ -2,6 +2,8 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -9,19 +11,21 @@
   <!-- Header -->
   <div class="header">
     <div class="header-left">
-      <img src="../bibin_assets/Bibin_BGRemoved.png" alt="Bibintell" class="logo" />
+      <div class="logo-wrap">
+        <img src="../bibin_assets/Bibin_BGRemoved.png" alt="Bibintell" class="logo" />
+      </div>
       <span class="brand">Bibintell</span>
     </div>
     <div class="header-actions">
       <button class="icon-btn" id="openStore" title="Open Store">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 9l2-5h14l2 5"/>
           <path d="M5 9h14v11H5z"/>
           <path d="M9 13h6"/>
         </svg>
       </button>
       <button class="icon-btn" id="openStats" title="View Stats">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
           <line x1="6" y1="20" x2="6" y2="14"/>
         </svg>
@@ -34,7 +38,7 @@
     <span class="status-pill" id="statusPill">● Idle</span>
   </div>
 
-  <!-- Stats strip (modular — populated by popup.js, won't break if empty) -->
+  <!-- Stats strip -->
   <div class="stats-strip" id="statsStrip">
     <div class="stat-chip">
       <span class="chip-val" id="streak">–</span>
@@ -43,7 +47,7 @@
     <div class="divider-v"></div>
     <div class="stat-chip">
       <span class="chip-val" id="total-mins">–</span>
-      <span class="chip-lbl">Mins</span>
+      <span class="chip-lbl">Remaining</span>
     </div>
     <div class="divider-v"></div>
     <div class="stat-chip">
@@ -54,13 +58,19 @@
 
   <!-- Session info (shown when active) -->
   <div class="session-card hidden" id="sessionCard">
-    <span class="session-label">Studying</span>
-    <span class="session-subject" id="current-subject">...</span>
+    <div class="session-inner">
+      <span class="session-label">Now studying</span>
+      <span class="session-subject" id="current-subject">...</span>
+    </div>
+    <div class="session-dot"></div>
   </div>
 
   <!-- Actions -->
   <div class="actions">
-    <button class="btn-primary" id="summonBibin">Summon Bibin 🐾</button>
+    <button class="btn-primary" id="summonBibin">
+      <span class="btn-icon">🦫</span>
+      Summon Bibin
+    </button>
     <button class="btn-ghost" id="endSession">End Session</button>
   </div>
 

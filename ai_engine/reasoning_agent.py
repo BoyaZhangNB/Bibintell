@@ -77,6 +77,33 @@ CONTENT_QUERY_KEYS = {
 
 CONTENT_FRAGMENT_HINTS = {"watch", "video", "post", "article", "reel", "short", "thread"}
 
+AI_ASSISTANT_DOMAINS = {
+    "chatgpt.com",
+    "gemini.google.com",
+    "claude.ai",
+    "copilot.microsoft.com",
+    "perplexity.ai",
+    "poe.com",
+    "you.com",
+    "pi.ai",
+    "character.ai",
+    "deepseek.com",
+}
+
+AI_INTRO_HINTS = {
+    "new chat",
+    "start a chat",
+    "how can i help",
+    "how can i assist",
+    "ask anything",
+    "welcome",
+    "try asking",
+    "send a message",
+    "upload",
+    "attach",
+    "examples",
+}
+
 
 def is_educational_domain(domain: str) -> bool:
     normalized = (domain or "").lower().strip()
@@ -94,6 +121,32 @@ def get_domain_from_url(url: str) -> str:
         return (urlparse(url or "").hostname or "").lower()
     except Exception:
         return ""
+
+
+def is_ai_assistant_domain(domain: str) -> bool:
+    normalized = (domain or "").lower().strip()
+    if not normalized:
+        return False
+
+    if any(normalized == candidate or normalized.endswith(f".{candidate}") for candidate in AI_ASSISTANT_DOMAINS):
+        return True
+
+    generic_ai_markers = ("gpt", "gemini", "claude", "copilot", "perplexity", "assistant", "chat")
+    return any(marker in normalized for marker in generic_ai_markers)
+
+
+def is_ai_onboarding_context(title: str, content: str) -> bool:
+    sample = f"{title or ''} {(content or '')[:500]}".lower()
+    compact = " ".join(sample.split())
+    if not compact:
+        return True
+
+    has_intro_hint = any(hint in compact for hint in AI_INTRO_HINTS)
+    has_study_signal = any(token in compact for token in ("calculus", "math", "study", "homework", "exam", "lesson"))
+    looks_sparse = len(compact) < 220
+
+    # Allow short onboarding/new-chat states before the user starts a real conversation.
+    return has_intro_hint and looks_sparse and not has_study_signal
 
 
 def is_limited_discovery_url(url: str) -> bool:
@@ -168,6 +221,7 @@ def analyze_relevance(topic: str, title: str, content: str, metadata: dict | Non
     domain = (metadata.get("domain") or get_domain_from_url(url)).lower()
     educational_domain_hit = is_educational_domain(domain)
     limited_discovery_hit = is_limited_discovery_url(url)
+    ai_assistant_hit = is_ai_assistant_domain(domain)
 
     # Navigation/discovery pages are always allowed while users search for resources.
     if limited_discovery_hit:
@@ -175,6 +229,13 @@ def analyze_relevance(topic: str, title: str, content: str, metadata: dict | Non
             "relevant": True,
             "reason": "Navigation/discovery page is allowed so the user can find relevant study resources.",
             "decision_path": "policy_discovery_navigation_allowed",
+        }
+
+    if ai_assistant_hit and is_ai_onboarding_context(title, content):
+        return {
+            "relevant": True,
+            "reason": "AI assistant onboarding/new-chat context is allowed so the user can begin study-related prompting.",
+            "decision_path": "policy_ai_assistant_onboarding_allowed",
         }
 
     system = """You are an Academic Content Auditor.
@@ -206,7 +267,9 @@ Educational Domains List:
 Decision guidance:
 1. Navigation/discovery pages (homepages, search results) -> relevant=true, user is finding resources.
 2. Deep content pages (videos, articles, posts, threads) -> judge strictly by title and content vs study topic.
-3. AI assistants (ChatGPT, Claude, Gemini, etc.) -> judge by apparent conversation topic in content.
+3. AI assistants (ChatGPT, Claude, Gemini, etc.):
+    - If the page is onboarding/new chat with little content, allow as relevant=true.
+    - Once there is substantive conversation content, judge strictly by whether that content serves the study topic.
 4. If deep-content evidence is weak (generic title like "YouTube" and thin content), prefer relevant=false unless topic evidence exists.
 5. If content is clearly unrelated to "{topic}" -> relevant=false.
 
