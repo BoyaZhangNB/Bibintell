@@ -270,7 +270,7 @@ function startFlow() {
     displayMessage("Okay, good luck! Come back if you need me. 👋", false);
     chrome.runtime.sendMessage({ action: "bibinDeclined" });
     chrome.storage.local.set({ studyActive: false });
-    setTimeout(() => hideBibin(), 2000);
+    setTimeout(() => hideBibin(), 5000);
   });
 
   btnRow.appendChild(yesBtn);
