@@ -53,6 +53,16 @@ function getActiveTab(callback) {
   });
 }
 
+function clearBibinOnAllTabs(reason = "session_force_ended") {
+  chrome.tabs.query({}, (tabs) => {
+    (tabs || []).forEach((tab) => {
+      if (!tab?.id) return;
+      if (!isEligibleUrl(tab.url || "")) return;
+      sendClearIntervention(tab.id, reason);
+    });
+  });
+}
+
 function requestShowBibin(tabId, source, options = {}) {
   const force = Boolean(options.force);
 
@@ -900,7 +910,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "sessionExpired") {
-    tryShowOnActiveTab("sessionExpired", { force: true });
+    chrome.storage.local.get("studyActive", (result) => {
+      if (!result.studyActive) {
+        clearBibinOnAllTabs("session_force_ended");
+        return;
+      }
+
+      chrome.storage.local.set({ studyActive: false }, () => {
+        clearBibinOnAllTabs("session_force_ended");
+      });
+    });
     return true;
   }
 
@@ -1222,8 +1241,10 @@ function startSessionTimer(durationMins) {
     logDebug("study_timer_expired", {});
     chrome.storage.local.get("studyActive", (result) => {
       if (result.studyActive) {
-        tryShowOnActiveTab("studyTimerExpired", { force: true });
-        chrome.storage.local.set({ studyActive: false });
+        chrome.storage.local.set({ studyActive: false }, () => {
+          clearBibinOnAllTabs("session_force_ended");
+          logDebug("study_timer_session_ended", {});
+        });
       }
     });
   }, ms);
