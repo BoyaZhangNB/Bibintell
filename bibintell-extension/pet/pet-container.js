@@ -356,6 +356,7 @@ function intervene(interventionPayload) {
   const reason = interventionPayload?.reason || "You seem to be drifting from your topic.";
   const pageTitle = interventionPayload?.pageTitle || document.title || "Unknown page";
   const nudge = typeof interventionPayload?.nudge === "string" ? interventionPayload.nudge.trim() : "";
+  const reminderCount = Number.isInteger(interventionPayload?.reminderCount) ? interventionPayload.reminderCount : 0;
 
   chrome.storage.local.get(["studyActive"], (result) => {
     if (!result.studyActive) {
@@ -364,10 +365,27 @@ function intervene(interventionPayload) {
 
     petMode = "intervention";
     pet.style.display = "block";
-    pet.style.bottom = "20px";
-    pet.style.right = "20px";
-    pet.style.left = "";
-    pet.style.top = "";
+
+    // Escalate position: corner → center-right → dead center
+    if (reminderCount === 0) {
+      pet.style.bottom = "20px";
+      pet.style.right = "20px";
+      pet.style.left = "";
+      pet.style.top = "";
+      pet.style.transform = "";
+    } else if (reminderCount <= 2) {
+      pet.style.bottom = "";
+      pet.style.right = "20px";
+      pet.style.left = "";
+      pet.style.top = "50%";
+      pet.style.transform = "translateY(-50%)";
+    } else {
+      pet.style.bottom = "";
+      pet.style.right = "";
+      pet.style.left = "50%";
+      pet.style.top = "50%";
+      pet.style.transform = "translate(-50%, -50%)";
+    }
 
     // Service worker sends a generated nudge. This fallback is only for transport/API failures.
     const fallback = `${topic} is waiting. You're on ${pageTitle}. ${reason}`;

@@ -1,5 +1,7 @@
 import os
 import time
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -13,8 +15,8 @@ app = FastAPI()
 bibin = BibinModel()
 
 # --- SUPABASE SETUP ---
-SUPABASE_URL = "https://oithszuedqqxcwfadzgu.supabase.co"
-SUPABASE_KEY = "sb_publishable_y6ftzLKBPLConSbVIlnPmg_OpOHhNfx"
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Optional[Client] = None
 supabase_init_error: Optional[str] = None
 

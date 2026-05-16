@@ -149,8 +149,8 @@ def is_ai_onboarding_context(title: str, content: str) -> bool:
     return has_intro_hint and looks_sparse and not has_study_signal
 
 
-def is_limited_discovery_url(url: str) -> bool:
-    """True only for high-level navigation pages, never deep content pages."""
+def _has_deep_content_signals(url: str) -> bool:
+    """True if the URL has path/query/fragment signals indicating a specific piece of content."""
     try:
         parsed = urlparse(url or "")
         path = (parsed.path or "/").strip().lower()
@@ -161,15 +161,27 @@ def is_limited_discovery_url(url: str) -> bool:
 
     for pattern in CONTENT_PATH_PATTERNS:
         if path.startswith(pattern):
-            return False
-
+            return True
     if any(key in CONTENT_QUERY_KEYS for key in query.keys()):
-        return False
-
+        return True
     if fragment and any(hint in fragment for hint in CONTENT_FRAGMENT_HINTS):
-        return False
+        return True
+    return False
 
-    return path in DISCOVERY_PATHS
+
+def is_limited_discovery_url(url: str) -> bool:
+    """True only for high-level navigation pages on any domain, never deep content pages."""
+    try:
+        path = (urlparse(url or "").path or "/").strip().lower()
+    except Exception:
+        return False
+    return not _has_deep_content_signals(url) and path in DISCOVERY_PATHS
+
+
+def is_educational_transit_page(url: str) -> bool:
+    """True for any non-deep-content page on a known educational domain.
+    Allows browsing/searching the site before landing on a specific resource."""
+    return not _has_deep_content_signals(url)
 
 
 def parse_llm_response(raw: str) -> dict:
@@ -231,6 +243,15 @@ def analyze_relevance(topic: str, title: str, content: str, metadata: dict | Non
             "decision_path": "policy_discovery_navigation_allowed",
         }
 
+    # Any non-deep-content page on an educational domain is treated as transit —
+    # the user is browsing/searching the site before reaching actual study material.
+    if educational_domain_hit and is_educational_transit_page(url):
+        return {
+            "relevant": True,
+            "reason": "Browsing page on a known educational site — user is likely navigating to study content.",
+            "decision_path": "policy_educational_domain_transit_allowed",
+        }
+
     if ai_assistant_hit and is_ai_onboarding_context(title, content):
         return {
             "relevant": True,
@@ -243,9 +264,10 @@ def analyze_relevance(topic: str, title: str, content: str, metadata: dict | Non
 Determine whether the current webpage is relevant to the user's study topic.
 
 Rules:
-- Primary objective: decide if current page usage is relevant to the stated study topic.
-- Judge deep-content pages strictly by current title/content vs study topic.
+- Think about the FULL academic scope of the study topic. A subject like "macroeconomics" covers monetary policy, fiscal policy, inflation, GDP, interest rates, aggregate demand/supply, exchange rates, trade, recessions, and more. A subject like "biology" covers cells, genetics, evolution, ecology, physiology, etc. Be inclusive: any legitimate subtopic, related concept, or foundational idea within the field counts as relevant.
+- Judge deep-content pages by whether the title/content falls within the academic scope of the study topic — not whether it uses the exact subject name.
 - AI assistants are judged by current conversation intent, not platform name.
+- When in doubt for academic content, prefer relevant=true over false.
 - Return strict JSON only."""
 
     educational_domains_csv = ", ".join(EDUCATIONAL_DOMAINS)
@@ -266,17 +288,18 @@ Educational Domains List:
 
 Decision guidance:
 1. Navigation/discovery pages (homepages, search results) -> relevant=true, user is finding resources.
-2. Deep content pages (videos, articles, posts, threads) -> judge strictly by title and content vs study topic.
+2. Deep content pages (videos, articles, posts, threads) -> judge by whether the content falls within the academic scope of "{topic}", including all its subtopics, related concepts, and prerequisite knowledge.
 3. AI assistants (ChatGPT, Claude, Gemini, etc.):
     - If the page is onboarding/new chat with little content, allow as relevant=true.
     - Once there is substantive conversation content, judge strictly by whether that content serves the study topic.
 4. If deep-content evidence is weak (generic title like "YouTube" and thin content), prefer relevant=false unless topic evidence exists.
-5. If content is clearly unrelated to "{topic}" -> relevant=false.
+5. If content is clearly unrelated to the academic field of "{topic}" -> relevant=false.
+6. Examples of scope — "macroeconomics" includes monetary policy, fiscal policy, interest rates, inflation, GDP, aggregate demand; "calculus" includes limits, derivatives, integrals, series; "organic chemistry" includes reaction mechanisms, functional groups, stereochemistry. Apply the same broad thinking to the actual study topic.
 
 Return ONLY a valid JSON object — no extra text:
 {{
   "relevant": boolean,
-    "reason": "1-2 sentence justification referencing the page title or content.",
+  "reason": "1-2 sentence justification referencing the page title or content and how it relates to the study topic scope.",
   "decision_path": "short snake_case label"
 }}"""
 

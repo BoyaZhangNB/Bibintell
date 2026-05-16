@@ -1047,7 +1047,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         chrome.storage.local.get(["relevancyHistory"], (histResult) => {
-          let history = histResult.relevancyHistory || [];
+          const history = histResult.relevancyHistory || [];
+          if (history.length >= 20) history.splice(0, history.length - 19);
           history.push({
             timestamp: Date.now(),
             title,
@@ -1055,7 +1056,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             result: { ...data, llm_analysis: analysis },
             topic,
           });
-          if (history.length > 20) history = history.slice(-20);
           chrome.storage.local.set({ relevancyHistory: history });
         });
 
@@ -1299,6 +1299,7 @@ function sendIntervene(tabId, data, attempt = 1) {
         pageTitle: data.pageTitle || "",
         pageUrl: data.pageUrl || "",
         llmReason: data.llmReason || "",
+        reminderCount: Number.isInteger(data.reminderCount) ? data.reminderCount : 0,
       },
       () => {
         const errorMessage = chrome.runtime.lastError?.message;
