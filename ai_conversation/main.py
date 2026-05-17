@@ -185,7 +185,7 @@ async def log_session(data: SessionLog):
         return {"status": "error", "message": f"Supabase unavailable: {supabase_init_error or 'init failed'}"}
 
     try:
-        supabase.table("dam_sessions").insert({
+        res = supabase.table("dam_sessions").insert({
             "user_id":                "legend_1",
             "session_date":           datetime.now().strftime("%Y-%m-%d"),
             "subject":                data.subject,
@@ -196,8 +196,11 @@ async def log_session(data: SessionLog):
             "total_pages":            data.total_pages,
             "relevant_pages":         data.relevant_pages,
         }).execute()
+        print(f"[LOG-SESSION] insert result: {res}", flush=True)
         return {"status": "success", "message": "Dam Session logged!"}
     except Exception as e:
+        import traceback; traceback.print_exc()
+        print(f"[LOG-SESSION] error: {e}", flush=True)
         return {"status": "error", "message": str(e)}
 
 

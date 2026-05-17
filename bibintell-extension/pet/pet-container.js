@@ -389,7 +389,9 @@ function intervene(interventionPayload) {
 
     // Service worker sends a generated nudge. This fallback is only for transport/API failures.
     const fallback = `${topic} is waiting. You're on ${pageTitle}. ${reason}`;
-    displayMessage(nudge || fallback, false);
+    // Wait one frame so the browser paints Bibin at his new position before
+    // positionBubble() reads getBoundingClientRect().
+    requestAnimationFrame(() => displayMessage(nudge || fallback, false));
   });
 }
 
