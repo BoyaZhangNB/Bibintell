@@ -195,29 +195,29 @@ function buildInterventionPrompt(data) {
     : `Pages visited: ${totalPages} — not enough data for focus % yet`;
 
   const tone = reminderCount === 0
-    ? "playful and caught-red-handed — one beaver pun, keep it light"
+    ? "dry and mildly amused — one sardonic line, like raising an eyebrow at a friend mid-scroll. No exclamation marks."
     : reminderCount <= 2
-    ? "disappointed but caring — less humor, more accountability"
-    : "stern and sharp — no jokes, just facts, keep it under 15 words total";
+    ? "audibly disappointed — invoke their own goals against them, 'I believed in you' energy, still one or two sentences"
+    : "ice cold — two to five words maximum. You have said everything. The silence is the message.";
 
   const examples = reminderCount === 0
     ? [
-        `"Caught you on ${pageHook}! Your ${topic} dam won't build itself — chew through it."`,
-        `"Dam it, ${pageHook} already? You've got ${topic} to study and ${elapsedMins} minutes on the clock."`,
-        `"Bibin spotted you on ${pageHook}. ${topic} is waiting — back to the lodge."`,
+        `"Oh fascinating. ${pageHook}. Very ${topic} of you."`,
+        `"${elapsedMins} minutes in and you found ${pageHook}. Bold."`,
+        `"Interesting detour. Pretty sure ${topic} didn't assign ${pageHook} though."`,
       ]
     : reminderCount <= 2
     ? [
-        `"Still on ${pageHook}? That's nudge ${interventions} — your ${topic} dam is leaking focus."`,
-        `"${elapsedMins} minutes in and you're on ${pageHook}. Bibin believed in you. Get back to ${topic}."`,
+        `"Still on ${pageHook}. That's nudge ${interventions}. You said you wanted to actually do this, remember?"`,
+        `"${elapsedMins} minutes in and you're back on ${pageHook}. I believed in you."`,
         hasFocusData
-          ? `"${focusPercent}% focus and you're still on ${pageHook}? ${topic} needs you back now."`
-          : `"Back on ${pageHook} again? ${topic} is still waiting — don't make Bibin come back."`,
+          ? `"${focusPercent}% focus on ${topic} and you're watching ${pageHook}. Okay."`
+          : `"${pageHook} again. You're the one who said ${topic} mattered, not me."`,
       ]
     : [
-        `"${interventions} nudges. ${topic}. Close ${pageHook}. Now."`,
-        `"No more puns. ${topic}. Go."`,
-        `"Bibin is done being nice. ${topic} only. Close ${pageHook}."`,
+        `"${topic}. Close ${pageHook}."`,
+        `"We're done talking about this."`,
+        `"Nudge ${interventions}. ${topic}. Go."`,
       ];
 
   return `Generate ONE intervention message for a student who drifted off-task.
@@ -237,12 +237,11 @@ ${examples.map(e => `- ${e}`).join("\n")}
 
 Write ONE message now. Rules:
 - Plain text only, no quotes around the output
-- Max 2 sentences, prefer 1
-- Must name the study topic
-- Use ${pageHook} as the hook
-- ${hasFocusData ? "Include focus % or nudge count as the metric" : "Use elapsed minutes or nudge count as the metric — skip focus % entirely"}
-- Sound like Bibin (beaver accountability coach)
-- No insults, no full URLs`;
+- Max 2 sentences, strongly prefer 1
+- Name the study topic and reference ${pageHook}
+- ${hasFocusData ? "Weave in focus % or nudge count naturally" : "Use elapsed minutes or nudge count — skip focus % entirely"}
+- Sound like a friend who is mildly exasperated by someone they genuinely care about
+- No cheerleading, no preachy motivation, no full URLs`;
 }
 
 function buildInterventionFallback(data) {

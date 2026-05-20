@@ -95,18 +95,19 @@ async def check_relevance(body: RelevanceRequest):
     try:
         result = analyze_relevance(body.topic, body.title, body.content, metadata={"url": body.url})
         relevant = result.get("relevant", True)
+        category = result.get("category", "relevant" if relevant else "irrelevant")
         reason = result.get("reason", "")
         decision_path = result.get("decision_path", "")
 
         print(
             (
-                f"[CHECK] result relevant={relevant} elapsed_ms={int((time.time() - started) * 1000)} "
+                f"[CHECK] result relevant={relevant} category={category} elapsed_ms={int((time.time() - started) * 1000)} "
                 f"decision_path={decision_path!r} reason={reason[:180]!r}"
             ),
             flush=True,
         )
 
-        if relevant is False:
+        if category == "irrelevant":
             print(
                 "[CHECK] intervention_required=true; service_worker_should_call=/nudge",
                 flush=True,
@@ -114,9 +115,10 @@ async def check_relevance(body: RelevanceRequest):
 
         return {
             "relevant": relevant,
+            "category": category,
             "reason": reason,
             "decision_path": decision_path,
-            "drift_detected": False,   # kept for extension compatibility, always False now
+            "drift_detected": False,
             "llm_analysis": result,
         }
     except Exception as e:
